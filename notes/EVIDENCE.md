@@ -14,38 +14,46 @@ Root-level streams/storages observed:
 |---|---|---|
 | `Contents` | stream | the document proper, see §2 |
 | `Objects` | storage | holds `Object N` substorages |
-| `\x01CompObj` | stream | OLE class/progid of the document |
+| `\x01CompObj` | stream | OLE class/progid; 78 B × 106, 94 B × 10, 70 B × 12 in the P95 corpus |
 | `\x03Internal` | stream | small, Publisher-internal |
-| `\x05SummaryInformation` | stream | standard property set |
+| `\x05SummaryInformation` | stream | standard property set; 123/128 P95 files |
 | `Object N` | storage | embedded OLE object; contains `Ole`, `CompObj`, `OlePres000/001`, `Ole10Native`, `Contents`, `Internal` |
-| `Quill` | storage | **only Publisher 97/98**; `Quill/QuillSub/CONTENTS` |
-| `Escher` | storage | **only Publisher 98** (verify); `Escher/EscherStm` |
+| `Quill` | storage | **Publisher 98 only**; `Quill/QuillSub/CONTENTS` |
+| `Escher` | storage | **Publisher 98 only** (verify per corpus); `Escher/EscherStm` |
 
-Publisher 95 corpus census: 0 files with a `Quill` storage, 0 with `Escher`.
+Corpus census: the Publisher 95 CD has 0 files with a `Quill` storage and 0 with
+`Escher`; the Publisher 97 CD (248 files) also has none. Both appear only in the
+Publisher 98 corpus.
 
 ## 2. `Contents` header [OBSERVED]
 
 All 128 Publisher 95 templates begin:
 
 ```
-0x00  u16  0xACE8            magic (bytes e8 ac)
+0x00  u16  0xACE8            magic (0xACE7 is accepted too — legacy form)
 0x02  u8   version magic     0x22 = 95/97/98 family, 0x2C = 2000+ family
 0x03  u8   0
-0x04  u32  ?                 per-file value
+0x04  u16  format version    300 (0x012C) modern; 200 legacy; 710 legacy-ACE7
+0x06  u16  writer stamp      0x0004 ×120, 0x3303 ×8 (GetVersion() of the writing OS)
 0x08  u32  stream length     == len(Contents)  [OBSERVED on all files]
-0x0C  u16  ?                 open
+0x0C  u16  125               required when format version == 300 (704 when 200)
 0x0E  u16  ?                 open
 0x10  u16  ?                 open
-0x12  u32  constant 574      NOT an offset (see below)
+0x12  u32  constant 574      NOT an offset
 0x16  u32  directory offset  see §3
 0x1A  u32  constant 34       NOT an offset
 ```
+
+The version gate is in `MSPUB.EXE` VA 0x0045F6B3: it reads 0x22 bytes, rejects a
+magic other than 0xACE8/0xACE7, requires `u32@0x08 <= actual stream length`, then
+requires (version 300 → `u16@0x0C == 125`) or (version 200 → `u16@0x0C == 704`).
+Error 0xE = bad magic/short stream, 0xF = unsupported version.
 
 Measured across all 128 Publisher 95 templates:
 
 | Field | Distinct values | Result |
 |---|---|---|
-| `u32 @0x04` | 2 | `0x0004012C` in 120 files, `0x33025F2C` in 8 |
+| `u32 @0x04` | 2 | `0x0004012C` (u16 0x012C/0x0004) in 120 files, `0x3303012C` (u16 0x012C/0x3303) in 8 |
 | `u16 @0x0C` | 1 | `125` in all files |
 | `u16 @0x0E` | 53 | open |
 | `u16 @0x10` | 68 | open |
@@ -72,7 +80,7 @@ At `directory offset`: `u16 count`, then `count` × 10 bytes:
 ```
 u16 seqSkip     unexplained; varies (0x16C0, 0x1640, 0x0123, ...)
 u16 id          chunk id, unique within the document
-u16 parentId    id of the parent chunk; 0x00FE / 0x0001 for roots
+u16 parentId    id of the parent chunk; 0x00FE for the document record
 u32 chunkOffset byte offset of the chunk inside Contents
 ```
 
@@ -133,40 +141,58 @@ Every pair resolves to a clean physical paper/banner size in EMU.
 The singleton set (one of each across all 128 files) is the document-level record
 group: per-publication globals, not per-shape data.
 
-## 6. TLV sub-records [OBSERVED framing; length table open]
+## 6. Chunk payload model: FIXED RECORDS, not TLV [OBSERVED — supersedes earlier TLV claims]
 
-Inside chunks, typed sub-records `{u8 id, u8 type, payload}`. Payload width is
-implied by `type`; variable-width types carry a `u32` length.
+**Correction.** The `{u8 id, u8 type, payload}` "TLV block" model (libmspub's
+`MSPUBBlockID`/`MSPUBBlockType`) belongs to the Publisher 2000+ base parser. For
+95/97/98 chunk payloads are **fixed binary records** whose layout is specific to
+the chunk type marker. Measured over 484 documents (p95, p97, p97-deluxe, p98):
 
-Two corrections established by measurement (tools/tlvfind.py):
-
-* A zero doublet `00 00` acts as a **list terminator**, not a zero-length block.
-* Shapes and images are **not** pure TLV lists: they carry a binary prologue
-  first (libmspub reads coordinates at +6, fill type at +0x2A, etc.).
-
-Chunk types whose payload is a fixed prologue followed by an exactly terminating
-TLV list (share of corpus chunks that terminate exactly at payload end):
-
-| Marker | Prologue | Exact | n |
+| Marker | Modal size | Count | Notes |
 |---|---|---|---|
-| 0x0014 PAGE | 0 | — | 712 (terminates, trailing bytes present) |
-| 0x0022 | 16 | 489/489 | 489 |
-| 0x0023 | 28 | 99/128 | 128 |
-| 0x002D | 24 | 127/128 | 128 |
-| 0x002E | 24 | 128/128 | 128 |
-| 0x0039 | 46 | 128/128 | 128 |
-| 0x0031 LOGO | — | no exact termination | 384 |
-| 0x0015 DOCUMENT | — | no exact termination | 128 |
+| 0x0022 | 18 | 2134/2134 | every chunk exactly 18 bytes; `u32@+4 == 10 == size-8`; payload `4d 4f` ("MO") + u16 ordinal + 6 zero bytes |
+| 0x0021 IMAGE_DATA | varies | 527/527 | `u32@+4 == size-8`; payload starts `01 00 09 00` (WMF) |
+| 0x0005 | 62 | 4474 | 70 in 2 chunks |
+| 0x0000 | 102 | 4292 | 104 ×670, 106 ×54 |
+| 0x0006 | 53 | 4039 | 61 in 2 chunks |
+| 0x002D | 26 | 480 | 58 in 2 chunks |
+| 0x002E | 26 | 482 | — |
+| 0x0039 | 48 | 482 | 56 in 2 chunks |
+| 0x0031 | 30 | 1742 | 662 ×6, 446 ×3 |
 
-Shapes (0x00/0x01/0x02/0x03/0x04/0x05/0x06/0x07/0x08/0x16), groups (0x0F),
-images (0x02/0x21) and the document chunk do not terminate as pure TLV lists, so
-their payload is prologue+TLV with a prologue whose length varies by type.
+For every marker other than 0x0021/0x0022 the `u32@+4 == size-8` test fails, so
+there is no generic length-prefixed container framing.
 
-The authoritative length table must come from the binary (see the
-`getBlockDataLength` switch in the decompilation).
+The size variants of a marker are not noise: they are the record's optional
+trailing extension (most likely a counted array). Each chapter must state, per
+marker, the fixed part and the rule that produces the variant sizes.
 
-## 7. Version dispatch [OBSERVED]
+**Invalidated:** the earlier note in this file claiming "0x0022 = prologue 16 +
+TLV list, 489/489 exact" and the 0x0014/0x0023/0x002D/0x002E/0x0039 "TLV start
+offset" table. Those walks started on a trailing `00 00` and terminated
+immediately. Do not cite them.
 
-`MSPUB.EXE` (95) reads the `Contents` magic and version byte; the string
-"Publisher cannot load files from a different version" is the load gate. Version
-magic `0x2C` is the 2000+ family and is rejected by the 95/97/98 binaries.
+## 7. Shape geometry [OBSERVED]
+
+For shape chunk markers (0x00, 0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x16):
+
+```
++0x00  u16  type marker
++0x02  u8   A     per-type constant
++0x03  u8   B     per-type constant
++0x04  u16  rotation, tenths of a degree (counter-clockwise)
++0x06  s32  x0    left   \ 
++0x0A  s32  y0    top     |  EMU, absolute page coordinates
++0x0E  s32  x1    right   |
++0x12  s32  y1    bottom /
+```
+
+Verified on `p95/x/PAGEWIZ/MODERN.PUB`: 528 shape chunks, all bounding boxes inside
+the 20 in × 20 in page after conversion at 914400 EMU/in, rotation 0.
+
+## 8. Version dispatch [OBSERVED]
+
+The 95/97/98 binaries accept only version magic 0x22 (and the legacy 0xACE7 magic
+form); magic 0x2C (2000+) is rejected. The `Quill` text engine and the `Escher`
+drawing layer do not exist in the Publisher 95 or 97 CD contents at all — they are
+Publisher 98 additions (`SHARED/QUILL/QS98.DLL`, `MSO97.DLL`).

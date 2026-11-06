@@ -134,8 +134,15 @@ class Reader:
         return img
 
     def _parse_quill(self, blob):
-        """Quill chunk list: 0x18 marker, 4cc name, u16 id, 4 reserved, 4cc name2,
-        u32 offset, u32 length; list continues while next offset != 0xFFFFFFFF."""
+        """Quill chunk directory (Publisher 98 only).
+
+        List header (8 bytes at the list offset, first list at 0x18):
+            +0 u16 unknown (observed 0x0002), +2 u16 entry count, +4 u32 next list
+        Entry record (24 bytes):
+            +0 u16 0x18, +2 4cc name, +6 u16 id, +8 u32 flags, +0xC 4cc name2,
+            +0x10 u32 data offset, +0x14 u32 data length
+        The list chain ends when the next-list offset is 0xFFFFFFFF.
+        """
         chunks = []
         off = 0x18
         seen = set()
@@ -145,15 +152,16 @@ class Reader:
             nxt = struct.unpack_from("<I", blob, off + 4)[0]
             p = off + 8
             for _ in range(num):
-                if p + 20 > len(blob):
+                if p + 24 > len(blob):
                     break
                 name = blob[p + 2:p + 6].decode("latin-1")
                 cid = struct.unpack_from("<H", blob, p + 6)[0]
+                flags = struct.unpack_from("<I", blob, p + 8)[0]
                 name2 = blob[p + 12:p + 16].decode("latin-1")
                 coff, clen = struct.unpack_from("<II", blob, p + 16)
                 chunks.append({"name": name, "name2": name2, "id": cid,
-                               "offset": coff, "length": clen})
-                p += 20
+                               "flags": flags, "offset": coff, "length": clen})
+                p += 24
             off = nxt
         return chunks
 
