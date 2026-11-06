@@ -1,6 +1,8 @@
 # 04 — DOCUMENT chunk (`typeMarker 0x0015`)
 
-Exactly one DOCUMENT chunk per file, always directory record 0, always with `parentId = 0x00FE`.
+Exactly one DOCUMENT chunk per file, always directory record 0, always with a sentinel
+`parentId`: `0x00FE` in the 128 `.PUB` documents, `0x00FF` in the two `.JSP` publications
+(chapter 03 §3.4).
 
 ## 4.1 Size
 

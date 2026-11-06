@@ -32,7 +32,7 @@ KNOWN_MARKERS = {
     0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007, 0x000F,
     0x0014, 0x0015, 0x0016, 0x001A, 0x001C, 0x001E, 0x001F, 0x0021, 0x0022,
     0x0023, 0x0026, 0x0027, 0x0028, 0x0029, 0x002A, 0x002B, 0x002C, 0x002D,
-    0x002E, 0x0031, 0x0032, 0x0034, 0x0035, 0x0037, 0x0038, 0x0039,
+    0x002E, 0x0031, 0x0032, 0x0034, 0x0035, 0x0036, 0x0037, 0x0038, 0x0039,
 }
 
 # Per-type constant byte pair at chunk +2/+3 (chapter 04/05 and the record table).
@@ -184,7 +184,7 @@ def coverage(c: "pubcore.Chunk"):
 
 
 def validate_file(path: str, v: Violations):
-    stats = {"files": 0, "explained": 0, "payload": 0, "named": 0}
+    stats = collections.Counter(files=0, explained=0, payload=0, named=0)
     doc = pubcore.parse_contents(path)
     d = doc.contents
     stats["files"] = 1
@@ -231,7 +231,7 @@ def validate_file(path: str, v: Violations):
         v.add(path, "dir.duplicate_id", "count %d" % count)
     idset = set(ids)
     for i, (cid, par, off, fl) in enumerate(recs):
-        if par != 0x00FE and par not in idset:
+        if par not in (0x00FE, 0x00FF) and par not in idset:
             v.add(path, "dir.parent_resolves", "record %d parent %d" % (i, par))
         if not (tr + 14 + 10 * count <= off < len(d)):
             v.add(path, "dir.chunk_offset_range", "record %d offset %d" % (i, off))
@@ -241,7 +241,7 @@ def validate_file(path: str, v: Violations):
             v.add(path, "dir.flags_domain", "record %d flags %#06x" % (i, fl))
         if cid < 0x0100:
             v.add(path, "dir.id_space", "record %d id %#06x" % (i, cid))
-    if recs[0][1] != 0x00FE:
+    if recs[0][1] not in (0x00FE, 0x00FF):
         v.add(path, "dir.root_is_record0", recs[0][1])
     for i in range(len(recs) - 1):
         if not (recs[i][2] < recs[i + 1][2]):
@@ -457,11 +457,15 @@ def main():
     if agg["payload"]:
         pct = 100.0 * (1 - agg["explained"] / agg["payload"])
         print("chunk payload bytes  : %d" % agg["payload"])
-        print("documented coverage  : %.1f%%" % (100.0 * agg["explained"] / agg["payload"]))
-        print("unexplained          : %.1f%%  (%d bytes)"
+        print("framing coverage     : %.1f%%  (bytes inside a record whose size rule is proven)"
+              % (100.0 * agg["explained"] / agg["payload"]))
+        print("outside framing      : %.1f%%  (%d bytes)"
               % (pct, agg["payload"] - agg["explained"]))
-        print("named-field coverage : %.1f%%  (bytes inside a field whose meaning the spec states)"
+        print("named-field coverage : %.1f%%  (bytes inside a field the spec names)"
               % (100.0 * agg["named"] / agg["payload"]))
+        print("unnamed bytes        : %.1f%%  (%d bytes)"
+              % (100.0 * (agg["payload"] - agg["named"]) / agg["payload"],
+                 agg["payload"] - agg["named"]))
     return 0 if len(v) == 0 else 1
 
 

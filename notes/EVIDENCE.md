@@ -3,10 +3,15 @@
 Facts below were measured directly and are the baseline every version chapter may
 rely on. Anything not listed here must be established in the per-version notes.
 
+**Corpus convention.** "The Publisher 95 corpus" means the 130 documents of `p95/x`:
+128 `.PUB` templates plus the two `.JSP` publications (`CHEKLIST.JSP`, `INFOSHET.JSP`).
+Where a count is still stated over 128 files it predates the `.JSP` inclusion and excludes
+them explicitly (say so when citing).
+
 ## 1. Outer container [OBSERVED]
 
 `d0 cf 11 e0 a1 b1 1a e1` — OLE2/CFB v3 (512-byte sectors, 4096-byte mini sectors).
-Every shipped `.PUB` in the Publisher 95 CD (128 files) parses cleanly as CFB.
+Every one of the 130 Publisher 95 CD documents parses cleanly as CFB.
 
 Root-level streams/storages observed:
 
@@ -17,7 +22,7 @@ Root-level streams/storages observed:
 | `\x01CompObj` | stream | OLE class/progid; 78 B × 106, 94 B × 10, 70 B × 12 in the P95 corpus |
 | `\x03Internal` | stream | small, Publisher-internal |
 | `\x05SummaryInformation` | stream | standard property set; 123/128 P95 files |
-| `Object N` | storage | embedded OLE object; contains `Ole`, `CompObj`, `OlePres000/001`, `Ole10Native`, `Contents`, `Internal` |
+| `Object N` | storage | embedded OLE object; contains `Ole`, `CompObj`, `OlePres000/001`, `Ole10Native`, `Contents`, `Internal`. Its `Contents` is the **embedded server's** document (WordArt / packaged binary), never a Publisher `0xACE8` stream: 0 of 285 instances |
 | `Quill` | storage | **Publisher 98 only**; `Quill/QuillSub/CONTENTS` |
 | `Escher` | storage | **Publisher 98 only** (verify per corpus); `Escher/EscherStm` |
 
@@ -28,7 +33,7 @@ publications). The three `.JSP` files on the Publisher 98 CD (`CHEKLIST.JSP`,
 
 ## 2. `Contents` header [OBSERVED]
 
-All 128 Publisher 95 templates begin:
+All 130 Publisher 95 documents begin:
 
 ```
 0x00  u16  0xACE8            magic (0xACE7 is accepted too — legacy form)
@@ -74,27 +79,35 @@ Worked example — `p95/x/MSPUB.PUB`, `Contents` length 2780 (0xADC):
                      ^magic  ^ver        ^0x08 = 0x0ADC = 2780 = stream length
 ```
 
-## 3. Chunk directory [OBSERVED]
+## 3. Chunk directory [OBSERVED — CORRECTED]
 
-At `directory offset`:
+At `directory offset` (`u32 @ 0x16`): a **4-byte header**, then `count` × 10-byte records, then
+**10 zero bytes**, then the first chunk:
 
 ```
-u16 count                  number of records
-u16 idHighWaterMark        == max(id) in every measured file
-count × 10 bytes:          {u16 id, u16 parentId, u32 chunkOffset, u16 flags}
-10 zero bytes
-first chunk
+u16 count
+u16 idHighWaterMark        == max(id) in every file of every corpus
+count × { u16 id, u16 parentId, u32 chunkOffset, u16 flags }
+10 × 0x00
 ```
 
-`parentId` is `0x00FE`/`0x00FF` for the document record. `flags` is a per-record
-attribute word drawn from a closed 13-value domain `0x1040 | bits` for
-non-document records (modal value 0x1640); record 0 carries `idHighWaterMark`.
-Semantics of the bits are still open — see chapter 03. [OBSERVED]
+`id` is the chunk id (unique within the document, `>= 0x100`). `parentId` is `0x00FE` (Publisher
+95 `.PUB`), `0x00FF` (the two `.JSP` publications) for the single root record, which is always the
+DOCUMENT chunk; every other parent resolves to a live id. `flags` is the chunk manager's status
+word: a closed 13-value domain (`0x1440 | bits`), bits 6/10 and node kind 1 (`0x1000`) always set,
+modal value `0x1640`. `flags` is persisted verbatim and is not derived from document structure —
+see chapter 03 §3.6.
 
 Chunks appear in ascending `chunkOffset` order, therefore
 `chunkSize = next.chunkOffset - chunk.chunkOffset`, and the last chunk extends to
-`len(Contents)`. Verified on 10640 chunks / 128 files: no duplicate offsets, no
-zero/negative sizes.
+`len(Contents)`. Verified on every record of all 493 documents: no duplicate offsets, no
+zero/negative sizes, no gap (`offset[i+1] == offset[i] + size[i]`), and
+`directoryOffset + 14 + 10·count == first chunk offset`.
+
+**Superseded:** the earlier model `u16 count` + `count × {u16 seqSkip, u16 id, u16 parent,
+u32 offset}` plus a 12-byte trailer. It reads the header's `idHighWaterMark` as record 0's first
+field and every record's `flags` as the next record's first field; the "trailer stamp" it reported
+is the last record's `flags` word followed by the 10 zero bytes. Do not cite the old model.
 
 Every chunk begins with `u16 typeMarker`.
 

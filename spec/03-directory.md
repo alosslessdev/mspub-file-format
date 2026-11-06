@@ -21,7 +21,7 @@ D+0            u16  count                           34 .. 932 = number of chunk 
 D+2            u16  idHwm                           id high-water mark (== max(id), §3.5)
 D+4            count × 10 bytes:
                  +0  u16  id                       chunk id, unique in the document
-                 +2  u16  parentId                 0x00FE for the document record, else a live id
+                 +2  u16  parentId                 0x00FE/0x00FF for the document record, else a live id
                  +4  u32  chunkOffset              absolute offset into Contents
                  +8  u16  flags                    status word (§3.6)
 D+4+10·count   10 × 0x00                            null record (§3.7)
@@ -99,16 +99,19 @@ Independent proof that `+0` is the id and `+2` the parent:
   (130/130; chapter 04 §4.3).
 * The PAGE chunk stores its child ids at `+0x24`; those equal the first `u16` of the child
   records and each child's **second** `u16` equals the page's own id (727/727; chapter 05).
-* The `u16` at `+2` is either `0x00FE` (exactly one record per file, the DOCUMENT) or an id
-  that resolves inside the same file (10 602/10 602 non-root records).
+* The `u16` at `+2` is either the root sentinel (exactly one record per file, the DOCUMENT) or
+  an id that resolves inside the same file (10 602/10 602 non-root records). The sentinel is
+  `0x00FE` in the 128 `.PUB` documents and `0x00FF` in the two `.JSP` publications
+  (`CHEKLIST.JSP`, `INFOSHET.JSP`) — both values are below the id space (min id 256), so a
+  reader must accept either, and `0x00FE`/`0x00FF` must never be resolved as ids.
 
 Corpus invariants (130/130 files):
 
 | property | result |
 |---|---|
 | ids unique within a file | 130/130 (0 duplicates) |
-| every `parentId` is `0x00FE` or resolves to a live id | 130/130 (0 dangling) |
-| exactly one record has `parentId == 0x00FE`, and it is the DOCUMENT (`0x0015`) | 130/130 |
+| every `parentId` is `0x00FE`/`0x00FF` or resolves to a live id | 130/130 (0 dangling) |
+| exactly one record has a sentinel parent, and it is the DOCUMENT (`0x0015`) | 130/130 |
 | `chunkOffset` strictly ascending in directory order | 130/130 |
 | `id >= 0x0100` | 130/130 (id space starts at 256; `0x00FE` = 254 is a sentinel *below* it) |
 | record 0 is the DOCUMENT and has the smallest offset | 130/130 |
@@ -293,8 +296,8 @@ flags, not a terminator.
 
 ## 3.8 Parent graph
 
-* Root: exactly one record per file has `parentId == 0x00FE` and it is the DOCUMENT
-  (`0x0015`) record. 130/130.
+* Root: exactly one record per file has `parentId` equal to a sentinel (`0x00FE` in 128 `.PUB`,
+  `0x00FF` in the 2 `.JSP`) and it is the DOCUMENT (`0x0015`) record. 130/130.
 * No orphans (every non-root parent resolves), no cycles, no self-parent.
 * Depth histogram (DOCUMENT = 0): `0:130, 1:2506, 2:3599, 3:855, 4:1327, 5:1398, 6:764,
   7:137, 8:16`.
@@ -368,8 +371,8 @@ directory_offset in [0x22, len(Contents)-4)
 directory_offset + 14 + 10*count == min(chunkOffset)
 Contents[D+4+10*count .. +10] == 10 x 0x00
 ids unique ; id >= 0x0100
-every parentId == 0x00FE or resolves to an id in the file
-exactly one record has parentId == 0x00FE and it is the 0x0015 chunk
+every parentId in {0x00FE, 0x00FF} or resolves to an id in the file
+exactly one record has a sentinel parentId and it is the 0x0015 chunk
 chunkOffset strictly ascending ; offset[i+1] == offset[i] + size[i] for adjacent records
 last extent ends at len(Contents)
 idHwm == max(id)                       (corpus property, not a format guarantee)
