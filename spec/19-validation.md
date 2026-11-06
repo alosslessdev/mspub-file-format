@@ -99,10 +99,28 @@ fully published. They are the open items tracked per version in `notes/*/GAPS.md
 | Quill payload internals (TEXT/STRS/FDPC/FDPP) | framing and names documented; record interiors in progress (chapter 13) |
 | Table representation | no dedicated marker in this family; documented in chapter 10 |
 
+## 19.3.1 Named-field coverage
+
+`tools/p95_validate.py` measures how much of each chunk payload falls inside a field the
+specification names, over the 130 Publisher 95 documents:
+
+| Metric | Value |
+|---|---|
+| bytes outside the chunk framing | **0.0 %** (108 bytes) |
+| bytes inside a named field | **60.1 %** |
+| unnamed bytes | 39.9 % (750 803 bytes) |
+
+That 60.1 % is the honest completeness number for the Publisher 95 record interiors: the
+framing, geometry, size rules and document-level tables are named, while fill/line/shadow,
+text-link and the run-level formatting bytes are not yet decoded. It is published so a reader
+can tell which parts of a record must be preserved verbatim rather than interpreted.
+
 ## 19.4 Reproducing
 
 ```bash
 python tools/validate.py p95/x p97/x p97deluxe/x p98/x     # 0 violations
+python tools/p95_validate.py                               # named-field coverage
+python tools/p97_quill_validate.py                         # Quill layouts, 5 documents
 python tools/pubread.py --corpus p98/x                    # reader summary
 python tools/spec_lint.py spec                            # chapter consistency
 python tools/corpus_index.py p95/x p97/x p97deluxe/x p98/x -o notes/corpus-index.json

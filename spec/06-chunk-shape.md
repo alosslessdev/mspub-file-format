@@ -83,10 +83,20 @@ measurement above supersedes it.
 | `0x0006` | embedded-object shape | 4 050 | `0x35` (53) / `0x3D` (61) | 53 (95/97), 61 (98) | — |
 | `0x0007` | smallest shape record | 1 159 | `0x29` (41) / `0x31` (49) | 41 (95/97), 49 (98) | — |
 | `0x0008` | shape variant | 114 | `0x76` (118) | **128** | `+2k` (130, 132) and 148 observed |
+| `0x0009` | shape variant (98 only) | 5 | `0x35` (53) | **61** = `B + 8` | — |
+| `0x000A` | shape variant (98 only) | 7 | `0x74` (116) | **126** = `B + 10` | `+8k` (198 at k = 9, 222 at k = 12) |
+| `0x000B` | shape variant (98 only) | 5 | `0x4E` (78) | **86** = `B + 8` | — |
 | `0x0016` | document-level record, **not a shape** | 488 | `0x10` (16) / `0x12` (18) | 16 (P95, +1 P97 file), 18 (P97) | — |
 
 `[OBSERVED]` — instance counts are the sum over `p95/x` (130 docs), `p97/x` (108),
 `p97deluxe/x` (250) and `p98/x` (5).
+
+The four Publisher-98-only variants `0x0008`–`0x000B` all sit under a PAGE in the gallery
+page of the five P98 publications, and their size rules above are exact (114/5/7/5
+instances). Their interiors are `[UNKNOWN]`: the gallery instances carry a zero geometry
+quad at `+0x06`, so no field can be derived from the corpus. `0x0008` and `0x000A` use the
+same `B + 10 + element·count` trailer as `0x0002`/`0x0003`; `0x0009` and `0x000B` use a
+compact `B + 8` form with no array.
 
 **`B` is a per-marker constant descriptor byte, not a record length.** It coincides with
 the fixed base only for `0x0004`…`0x0007` and `0x0016`; for `0x0000`/`0x0001`/`0x0002`/
