@@ -19,14 +19,14 @@ All values measured over the 128-file corpus (`p95/x/**/*.PUB`). [OBSERVED unles
 | 0x00 | u16 | `magic` | `0xACE8` (bytes `e8 ac`) in 128/128 | 128/128 |
 | 0x02 | u16 | `version_magic` | `0x0022` in 128/128 (byte 0x22, byte 0x00) | 128/128 |
 | 0x04 | u16 | `format_version` | `300` (0x012C) in 128/128; loader also accepts 200 and 710 | gate 0x0045F6B3 |
-| 0x06 | u16 | `writer_stamp` | `0x0004` in 120 files, `0x3303` in 8 | §2.3 |
+| 0x06 | u16 | `writer_os_version` | `0x0004` in 120 files, `0x3303` in 8 — the low word of the writer's `GetVersion()` (§2.3) | §2.3 |
 | 0x08 | u32 | `declared_length` | `== len(Contents)` in 128/128 | 128/128 |
 | 0x0C | u16 | `header_tag` | `125` (0x007D) in 128/128 P95 files; **version-dependent** — see §2.2.1 | gate: value must be in the loader's accepted set |
-| 0x0E | u16 | `document_chunk_id` | id of the DOCUMENT (0x15) chunk, 128/128 | §2.4 |
-| 0x10 | u16 | `page_4_id` | id of the 4th page in the document page order, 128/128 | §2.4 |
+| 0x0E | u16 | `document_chunk_id` | id of the DOCUMENT (0x15) chunk, **493/493** | §2.4 |
+| 0x10 | u16 | `saved_page_id` | id of the 4th page in the document page order in 487/493; `0` in all 5 P98 documents | §2.4 |
 | 0x12 | u32 | `text_section_offset` | `574` (0x0000023E) in all Publisher 95 files; 640 in 97, 894 in 98 — points at the `0x002EF0DE` text store (chapter 13 §13.14) | 493/493 |
 | 0x16 | u32 | `directory_offset` | offset of the chunk directory | 128/128, §3 |
-| 0x1A | u32 | `const_34` | `34` (0x00000022) in 128/128 — equals the size of the header the loader reads; still not an offset | 128/128 |
+| 0x1A | u32 | `post_header_offset` | `34` (0x00000022) in 493/493 — the writer's cursor just past the 34-byte header; written but never read (§2.4.1) | 493/493 |
 | 0x1E | u16 | `flags_1e` | `0x0500` ×8, `0x0100` ×87, `0x0300` ×16, `0x0000` ×17 | 128/128 |
 | 0x20 | u16 | `flags_20` | `0x0500` in 128/128 | 128/128 |
 | 0x22 | u16 | descriptor | `0x003A` in 128/128 | 128/128 |
@@ -69,8 +69,11 @@ Consequences:
   `0xACE8` / version 300, with the tag of its writer generation (§2.2.1). [OBSERVED]
 * `0x02C6` (710) and `200` are the legacy format versions the Publisher 95 binary still accepts.
   [OBSERVED in the loader, unexercised by the corpus]
-* The loader does **not** inspect `+0x06`, `+0x0E`, `+0x10`, `+0x12`, `+0x1A`, `+0x1E` or `+0x20`.
-  [OBSERVED]
+* The **validation gate** does not read `+0x06`, `+0x0E`, `+0x10`, `+0x1A`, `+0x1E` or
+  `+0x20`: the 0x22-byte read is followed by checks on `+0x00`, `+0x04`, `+0x08` and
+  `+0x0C` only. `+0x0E` and `+0x10` are consumed *after* the gate by the directory load
+  and the first-open selection (§2.4); `+0x12`/`+0x16` are offsets used by the text and
+  directory paths. [OBSERVED, binary]
 
 ## 2.2.1 `header_tag` is version-scoped, not fixed
 
@@ -96,52 +99,106 @@ Consequences for a reader:
 * The earlier statement in this chapter that the tag is `125` "required when version == 300"
   describes only the Publisher 95 build. [Correction, measured 487/487]
 
-## 2.3 The `+0x06` stamp and its two populations
+## 2.3 `+0x06` — the writer's Windows version, not a format word
 
-| Value | Files |
-|---|---|
-| `0x0004` | 120 |
-| `0x3303` | 8: `MSPUB.PUB`, `BIZTRIP.PUB`, `BRBLLOON.PUB`, `CONGRATS.PUB`, `MRBLBRDR.PUB`, `PERYARD2.PUB`, `SAILBOAT.PUB`, `STILLIFE.PUB` |
+| Value | `GetVersion()` low word decodes to | Files |
+|---|---|---|
+| `0x0004` | 4.0 | 120 |
+| `0x3303` | 3.51 | 8: `MSPUB.PUB`, `BIZTRIP.PUB`, `BRBLLOON.PUB`, `CONGRATS.PUB`, `MRBLBRDR.PUB`, `PERYARD2.PUB`, `SAILBOAT.PUB`, `STILLIFE.PUB` |
 
-`u32 @0x04` is therefore `0x0004012C` in 120 files and `0x3303012C` in 8 files — note the low
-half is 0x012C (300) in **both**, so the *format version is identical*; only the word at `+0x06`
-differs. (An earlier note in `notes/EVIDENCE.md` reported `0x33025F2C`; that value does not occur
-in any corpus file — the correct pair is 0x3303 / 0x012C.)
+`u32 @0x04` is therefore `0x0004012C` in 120 files and `0x3303012C` in 8 files — the low half is
+0x012C (300) in **both**, so the format version is identical; only the word at `+0x06` differs.
+(An earlier note in `notes/EVIDENCE.md` reported `0x33025F2C`; that value does not occur in any
+corpus file — the correct pair is 0x3303 / 0x012C.)
 
-The writer path sets this word from `GetVersion()` (`MSPUB.EXE` VA `0x00535FCC`, the
-"new document" initialiser, stores `(short)GetVersion()` into the header word at +0x06 before
-serialising the 0x22-byte header). `0x3303` is therefore a **producer-environment stamp**, not a
-format discriminator: the eight files were written on a different Windows configuration than the
-other 120. [INFERENCE — the store of `GetVersion()` is observed; the exact mapping from a
-reported Windows version to `0x3303` is not reproduced.]
+**It is the writer's OS version.** The save routine builds the 0x22-byte header in a stack
+buffer and stores the *low 16 bits of `GetVersion()`* at `+0x06`: call VA `0x0053649F`, store
+`[ebp-0x76]` at VA `0x005364A5`. The same builder writes magic `0xACE8` (VA `0x00536612`),
+format 300 (VA `0x0053648C`) and tag 125 (VA `0x00536486`). `GetVersion` packs the major version
+in the low byte and the minor version in the high byte of its low word, so the two observed
+values decode as **4.0** (`0x0004`) and **3.51** (`0x3303`). `0x3303` is the version reported by
+Windows NT 3.51; `0x0004` is reported by both Windows 95 and Windows NT 4.0. [OBSERVED for the
+store and the corpus values; INFERENCE for the OS mapping — the binaries do not record the OS
+name]
 
-The eight files are otherwise ordinary: same version 300, same tag 125, same structure, and they
-load normally. [OBSERVED]
+The value is a **producer-environment stamp**, not a document property. No other measured
+property separates the eight: over the 128 `.PUB` files they span 34–61 chunks, 5–8 pages,
+DOCUMENT `flags` 0x16C0 (1) and 0x16C8 (7), `+0x1E` ∈ {0, 0x100, 0x500}, directory offsets
+0x2BC/0xA60/0xC60, `\x01CompObj` lengths 78 (6) and 94 (2), and an identical CFB header
+(version 3, sector shift 9/6, minor version 62); every one of those values also occurs among the
+120, and seven of the eight share their OLE root timestamp (1995-08-11) with 112 of the 120.
+Nothing can be predicted from the stamp and nothing needs to be: all 130 load identically.
+[OBSERVED; the OS mapping alone is [INFERENCE]]
 
-## 2.4 `+0x0E` and `+0x10`
+## 2.4 `+0x0E` and `+0x10` — cached ids the open path consumes
 
-* `+0x0E` equals the id of the DOCUMENT (0x0015) chunk in **130/130** P95 documents. The loader
-  passes the *address* of this field to the directory loader (`FUN_0045E06A`), which writes a
-  recomputed value back — so this is the "current document block id" slot maintained across
-  load/save. Immediately after loading, the open function calls `FUN_0041D0C7(docId, 1)`
-  (VA `0x0041D0C7`), which sets the low two bits of that chunk's in-memory `flags` word — the
-  document is marked as in use. [OBSERVED]
-* `+0x10` is a PAGE id: it equals the entry at index **3** (the 4th page) of the document's page
-  order (first page from DOCUMENT `+0x08`, the rest from the DOCUMENT `+0x74` array) in
-  **130/130** P95 documents, **108/108** Publisher 97 documents and **249/250** Publisher 97
-  deluxe documents. Because the page order has at least five entries in every P95 document,
-  index 3 always exists. In Publisher 98 the field is `0` in all 5 documents (the record moved).
-  [OBSERVED] Its *role* (current view page? the page shown when the file opens?) is [UNKNOWN];
-  the discriminating experiment is to change the current page in Publisher, save, and re-read
-  `+0x10`. The one P97-deluxe exception is a document whose page order changed after the field
-  was written, which is consistent with "cached pointer, not recomputed on save".
+Both are ids the writer caches and the open path resolves; neither is validated. Measured over
+all 493 documents:
+
+| Field | Identity | P95 | P97 | P97 deluxe | P98 |
+|---|---|---|---|---|---|
+| `+0x0E` | id of the DOCUMENT (`0x0015`) chunk | 130/130 | 108/108 | 250/250 | 5/5 |
+| `+0x10` | entry at index **3** (4th page) of the page order | 130/130 | 108/108 | 249/250 | 0/5 |
+| `+0x10` | `0` | — | — | — | 5/5 |
+
+The page order is the DOCUMENT's page list: first page at DOCUMENT `+0x08`, the rest in the array
+that follows — `+0x74` in P95, `+0x92` in P97 and `+0xBC` in P98 (the +30/+72-byte version
+suffix). Every document in all four corpora has at least five pages, so index 3 always exists.
+[OBSERVED]
+
+The single exception is `p97deluxe/x/PageWiz/aexhbroc.pub`: its page order is
+`0x117, 0x108, 0x109, 0x10A, 0x16D, 0x10B` and `+0x10` holds `0x16D` — index 4. That is exactly
+what a *cached* pointer does when a page is inserted after the field was written, and the field
+is not recomputed on save. In Publisher 98 the writer leaves the word at `0`.
+
+**What the open path does with them** (MSPUB.EXE P95, VA `0x0045F6B3`):
+
+1. It reads the 0x22-byte header into a stack buffer (call VA `0x0045F797`). `+0x0E` and
+   `+0x10` are adjacent words of that buffer.
+2. It calls the directory loader with the directory offset (`+0x16`) and the *address* of the
+   `+0x0E` word (call VA `0x0045F897`). At the end of the load the loader replaces the cached
+   word with the result of the id-translation routine at VA `0x0044A942` and stores it back
+   into the buffer (call VA `0x0049D1B8`, store VA `0x0049D1C0`). The open path then uses the
+   translated value as the document chunk id: it clears bit 6 of that slot's status word
+   (VA `0x0045F8D4`) and marks the slot in use via VA `0x0041D0C7`.
+3. `+0x10` is read from the same buffer and passed through the same translation routine
+   (call VA `0x0045F8A4`). On the first-open path it is then used to **select an object**: if
+   the id is above `0xFF`, VA `0x00405984` returns its ordinal among its parent's children and
+   VA `0x004415CD` activates that ordinal; then VA `0x00401A5B` sets bit 11 (the selection bit)
+   on the object's status word. Values ≤ `0xFF` take the no-selection path.
+   [OBSERVED for the data flow; INFERENCE that bit 11 means "selected"]
+
+Consequently `+0x10` is the *page the document opens on* (the saved view/selection), recorded
+as a raw id at save time (the save routine takes it from the current-view global
+`DAT_00588550` when that is a live object of the document, otherwise from element 2 of the
+document's id list — VA `0x00536B54`), and resolved through the id map at open time. The
+Publisher 97 open function does the same (VA `0x00416A83`; translation call VA `0x0042C59D`).
+
+Neither field is validated: a stale or bogus id is passed through the translator unchanged and
+then used as a table index / selection id. A reader must therefore treat `+0x0E` as a hint that
+the DOCUMENT id exists and `+0x10` as a hint that the cached page still exists.
+
+## 2.4.1 `+0x1A` — a save-time bookmark the loader never reads
+
+`+0x1A` is `34` in 493/493 documents, but it is not a constant the code compares against or
+uses as a loop bound. It is the writer's **file cursor just after the 34-byte header**: the save
+routine writes the header at offset 0, advances the cursor by 0x22, and stores the cursor at
+`+0x1A` (VA `0x0053650D`). It then writes the fixed block from that cursor and stores the block's
+end at `+0x12` (574 in P95; VA `0x0053655D`). [OBSERVED]
+
+In the Publisher 95 decompilation no code reads a header field at `+0x1A`: the loader's 0x22-byte
+read length is an immediate, the open function's header-buffer accesses stop at `+0x16`, and the
+directory loader receives `+0x16` and `+0x0E` only. The word is a writer bookmark ("the fixed
+block starts here"), not a validation constant. A reader MAY require it to equal 0x22 as a
+corpus invariant, but must derive offsets from `+0x12` and `+0x16`, never from `+0x1A`.
+[OBSERVED, whole-binary decompilation]
 
 ## 2.5 The fixed block `0x22…0x23D`
 
 Between the 34-byte header and the text store there is a **540-byte block** that is not a chunk:
 it has no directory record, no type marker and no length field, and it always starts at the same
 absolute offset. The text-section offset at header `+0x12` is exactly its end (`0x23E` in
-Publisher 95), and the constant `34` at `+0x1A` is exactly its start, so the pair defines the
+Publisher 95), and the bookmark `34` at `+0x1A` (§2.4.1) is exactly its start, so the pair defines the
 block. (Publisher 97/98 extend the header block itself, so the text section starts at 640 / 894
 there; `+0x12` follows it in every generation.)
 
@@ -291,7 +348,7 @@ offset  bytes           meaning
 0x10    0a 01           page-4 id 0x010A = 266
 0x12    3e 02 00 00     text-section offset 574 = 0x23E
 0x16    bc 02 00 00     directory offset 700
-0x1a    22 00 00 00     constant 34
+0x1a    22 00 00 00     post-header bookmark 34 (§2.4.1)
 0x1e    00 05           flags 0x0500
 0x20    00 05           flags 0x0500
 0x22    3a 00 06 00 5e 5c 09 00 02 00 00 00 60 60 01 00

@@ -74,20 +74,45 @@ at the chunk and not merely at *something* plausible.
 `p95/x/MSPUB.EXE`, VA `0x0045E06A` (decompiled at `notes/p95/decomp/0045e06a_FUN_0045e06a.c`;
 secondary copy `C:\pwrk\decomp95`), the load/save bridge for this directory:
 
-1. It performs **two separate 2-byte reads**. The first is the loop bound (`count`); the
-   second is held in a 2-byte slot and compared against the in-memory chunk-table size — if
-   `tableCount <= fileWord` the table is grown by `fileWord - tableCount + 1`. That is
-   high-water-mark semantics, not a chunk field: it is the `idHwm` word at `D+2`. [INFERENCE
-   from the arithmetic; the read order is [OBSERVED]]
-2. Then `count` iterations of `read(…, 10)` into five consecutive `u16` stack slots. The
-   first word is used as an index into the 16-byte-per-entry descriptor table at
+1. It seeks to `+0x16` and performs **two separate 2-byte reads**: `count` into
+   `[ebp-0x60]` (call VA `0x0045E0C7`) and `idHwm` into `[ebp-0x5C]` (call VA
+   `0x0045E0E5`). On the normal (non-legacy) load path the hwm is then compared with the
+   current in-memory chunk-table size (VA `0x0045E1EA`) and the table is grown so that its
+   size becomes `idHwm + 1` (amount VA `0x0045E1F4`, grow call VA `0x0045E215`, size update
+   VA `0x0045E224`). That is an allocation rule — the table is indexed by id — not a
+   validation of the records (§3.5). The read order and the arithmetic are [OBSERVED]; see
+   §3.3.1 for the saver that produces the value.
+2. Then `count` iterations of a 10-byte read (call VA `0x0045E28D`) into a five-word stack
+   buffer. The first word indexes the 16-byte-per-entry descriptor table at
    `DAT_00585A74` — the id space starts at `0x100`, consistent with `id` being record `+0`.
-3. The five words are copied into that entry as `{+0 parentId, +2 offsetLow, +4 offsetHigh,
-   +6 flags, +8 handle}` (+0x0C holds a parent link XOR-obfuscated with the document id).
-   The on-disk `flags` therefore round-trips verbatim; the saver re-emits it unchanged and
-   never recomputes it (§3.6).
-4. On save it writes `count`, the high-water mark, then the same 10-byte records in
-   ascending-offset order.
+3. The five words are copied into that entry as `{+0 parentId, +2 chunkOffset, +6 flags,
+   +0x0C obfuscated parent}` (`+4` receives the high half of the 32-bit offset). The loader
+   then clears **bit 11** of the status word it just stored (`and [entry+6], 0xF7FF`, VA
+   `0x0045E30A`). No other bit is touched at load, so bits other than 11 round-trip.
+   [OBSERVED]
+4. On save it writes `count` (VA `0x00536E2E`), then `max(id)` (VA `0x00536E7E`), then the
+   same 10-byte records in ascending-offset order. Each record copy has bit 6 forced to 1 and
+   bits 11 and 15 forced to 0 before it is written (VA `0x00538727`); the source is the
+   in-memory status word. The on-disk `flags` is therefore the manager's word with three bits
+   normalised, not a value the saver leaves untouched (§3.6). [OBSERVED]
+
+### 3.3.1 Where `idHwm` comes from
+
+The record writer at VA `0x00538727` — called once per emitted record — does three things
+after writing the 10 bytes: it increments the record count and executes
+
+```
+if (hwm < *record) hwm = *record;          // hwm = max over emitted ids
+```
+
+so the second directory word is *computed as `max(id)` at save time*, not carried over from
+an allocation high-water mark. `count` and `idHwm` are then both written by VA `0x00536C85`
+(`count` at `0x00536E2E`, `idHwm` at `0x00536E7E`). This is why `idHwm == max(id)` in
+493/493 corpus files: it is a writer invariant. On load the word is only a table-size hint,
+which is why a file whose `idHwm` disagrees with `max(id)` would still parse: the loader
+also allocates a slot on demand when a record's id is at or above the current table size
+(VA `0x0049D0E6`, allocation VA `0x0045DBA5`). [OBSERVED for the
+save side; the load-side consequence is [INFERENCE] from the code paths]
 
 ## 3.4 `id` and `parentId` — proven by cross-reference
 
@@ -124,13 +149,20 @@ Consumers must therefore resolve parents by id, never by position.
 
 ## 3.5 `idHwm`
 
-`idHwm == max(id)` in 130/130 files. This is a consequence of the corpus, not an identity:
-nothing was ever deleted from a shipped template, so a high-water mark and the largest live
-id coincide. The binary treats the word as a mark (§3.3 step 1), so readers MUST use
-`max(id)` when they need "largest id" and MAY use `idHwm` only as an allocation hint.
+`idHwm == max(id)` in 130/130 P95 files and 493/493 across all four corpora, because the
+**writer computes it that way**: the per-record writer increments `count` and sets
+`hwm = max(hwm, record.id)` before the directory header is written (§3.3.1). It is therefore
+a saver invariant, not a field the loader validates.
 
-Experiment that separates the readings: in Publisher 95 delete a shape, save, re-open — if
-`idHwm` keeps the pre-deletion value while `max(id)` drops, the field is a high-water mark.
+The loader reads the word only to size its in-memory chunk table: on the normal load path it
+compares the current table size with `idHwm` and grows the table until the size exceeds it
+(VA `0x0045E1EA`–`0x0045E224`). It never compares `idHwm` with the ids in the records; a file
+whose word disagrees with `max(id)` still loads, and the loader additionally allocates a slot
+on demand for any record id above the current table size (VA `0x0049D0E6`). [OBSERVED]
+
+Reader rules: use `max(id)` for "largest id"; use `idHwm` only as an allocation hint; MAY
+check `idHwm == max(id)` as a corpus invariant (see §3.10), but MUST NOT reject a file whose
+`idHwm` is stale, larger, or smaller than the largest live id.
 
 ## 3.6 The `flags` word (`D+4·k+8`)
 
@@ -155,41 +187,49 @@ flags = 0x1440 | (bit3 << 3) | (bit5 << 5) | (bit7 << 7) | (cls << 8)
         0x1440 = bits 6 and 10, set on 10 732/10 732 records
 ```
 
-| bits | mask | always | never | meaning |
+| bits | mask | on disk | loader / writer | meaning |
 |---|---|---|---|---|
-| 0–1 | `0x0003` | — | yes | tested by the binary (`& 0x803`) but never set |
-| 2, 4 | `0x0014` | — | yes | unused |
-| 3 | `0x0008` | — | — | binary: "registered in auxiliary reference lists" **[INFERENCE]** |
-| 5 | `0x0020` | — | — | only ever with `cls == 2`; **[UNKNOWN]** |
-| 6 | `0x0040` | **yes** | — | cleared by the saver after writing ⇒ "live/persisted" |
-| 7 | `0x0080` | — | — | one boolean; **[UNKNOWN]** |
-| 8–9 | `0x0300` | — | — | 2-bit class/level enum, values 0–3 (`cls`) |
-| 10 | `0x0400` | **yes** | — | set together with node kind 7 |
-| 11 | `0x0800` | — | yes | unused |
-| 12–14 | `0x7000` | `kind = 1` | — | 3-bit node kind; 1 = "live chunk" (§3.6.2) |
-| 15 | `0x8000` | — | yes | unused |
+| 0–1 | `0x0003` | `0` in all | set/restored by VA `0x0041D0C7` | 2-bit **in-use state**: 0 idle, 1 in use, 2 sticky/never downgraded, 3 assignable. A saved file always has 0 |
+| 2, 4 | `0x0014` | never | — | unused |
+| 3 | `0x0008` | varies (2 330) | kept by loader and writer | "registered in auxiliary reference lists": tested by VA `0x00407C1A` before unregistering from three tables **[INFERENCE]** |
+| 5 | `0x0020` | varies (1 342, only with `cls == 2`) | kept | manager flag; set together with class 3 by VA `0x00538ED6` for a `0x22` record when a document bit is set; no structural correlate **[INFERENCE]** |
+| 6 | `0x0040` | **1 in all** | forced 1 by the record writer VA `0x00538727`; set by the save traversal VA `0x0044D3FC`; cleared on pre-existing slots at load (VA `0x0045E143`) | "persisted / live record" |
+| 7 | `0x0080` | varies (3 233) | kept | one boolean; setter VA `0x004502F6` (bit = value), re-written by VA `0x00450083`; no structural correlate **[UNKNOWN]** |
+| 8–9 | `0x0300` | varies 0–3 | kept | 2-bit **class/level**: getter VA `0x004010AD`, setter VA `0x0040827E`, "raise to at least n" VA `0x0040CC5F` |
+| 10 | `0x0400` | **1 in all** | kept | constant on disk; new-object constructors set it when the object has a parent (VA `0x0044D909`, VA `0x004628E3`) |
+| 11 | `0x0800` | `0` in all | **forced 0 by writer VA `0x00538727`; cleared at load VA `0x0045E30A`** | "selected": set/cleared by VA `0x00401A5B` **[INFERENCE]** |
+| 12–14 | `0x7000` | `1` in all | masked by the loader as the slot kind | 3-bit **slot kind**: `1` = live chunk, `6` = free/reusable slot (VA `0x0045E15B`, VA `0x00407DA5`) |
+| 15 | `0x8000` | `0` in all | **forced 0 by writer VA `0x00538727`; cleared at load (VA `0x0045E14A`)** | traversal mark used by VA `0x0044D3FC` |
 
 Invariants over all 10 732 records: `bit5 ⇒ cls == 2` and `bit7 ⇒ cls ∈ {0, 2}` (no
 exceptions).
 
 ### 3.6.2 What the binary says the bits are
 
-Only code paths that touch the 16-byte table entry `+6` (all via `DAT_00585A74`):
+The word is the chunk manager's **in-memory status word**. It reaches the disk through the
+per-record writer (VA `0x00538727`), which forces exactly three bits to fixed values:
+bit 6 = 1, bit 11 = 0, bit 15 = 0. The loader stores the disk word unchanged except for
+clearing bit 11 (VA `0x0045E30A`). Everything else — bits 0–5, 7–10 and 12–14 — is
+whatever the manager had at save time; bits 8–9 are a class enum and bits 12–14 a slot
+kind, and the remaining variable bits (3, 5, 7) have no structural correlate (§3.6.3).
 
-| bits | accessor VA | reading |
-|---|---|---|
-| 0–1 | tested at `0x00411F50`, `0x00401148` (`& 0x803`) | never set in the corpus |
-| 3 | reader `0x00407C1A`: `if (entry[6] & 8) FUN_00530C45(id)` → unregisters the id from three auxiliary tables, then clears bit 3 | "chunk is registered in auxiliary reference lists" **[INFERENCE]** |
-| 5 | no individual accessor found | **[UNKNOWN]** |
-| 6 | save path clears it after writing | live/persisted marker |
-| 7 | setter `0x004502F6` (`f = (v<<7 ^ f) & 0x80 ^ f`), re-written by `0x00450083` | one boolean **[UNKNOWN]** |
-| 8–9 | getter `0x004010AD` `(f & 0x300) >> 8`; setter `0x0040827E`; "raise to at least n" `0x0040CC5F` called with literals 1, 2, 3 | 2-bit **level/class** enum |
-| 10 | set by `0x00405497` together with node kind 7 | constant here |
-| 11 | set/cleared by `0x00401A5B` | never set in the corpus |
-| 12–14 | `0x00401148` `switch ((f & 0x7000) >> 12)`; `0x00407C1A`/`0x00407DA5` write `(f & 0xEFFF) | 0x6000` for a **free slot**; `0x0045E06A` counts kind 6 as reusable | 3-bit node kind; `1` = live chunk in this corpus |
+Only three parts of the word are therefore format-relevant:
 
-So the word is the chunk manager's **in-memory status word**, persisted verbatim by the
-saver. Document-independent content: `kind = 1` (live) and the constant `0x440`.
+* **bits 12–14, slot kind.** The loader masks `(f >> 8) & 0x70` and treats `0x60` as a free
+  slot it may reuse (VA `0x0045E15B`); free slots are created by writing
+  `(f & 0xEFFF) | 0x6000` (VA `0x00407DA5`). All 10 732 disk records carry kind `1`.
+* **bit 6 = 1, "live/persisted".** It is set by the save traversal (VA `0x0044D3FC`) on every
+  record reachable from the document and forced again by the record writer. All disk records
+  carry it.
+* **bits 11 and 15 = 0.** They are transient selection/traversal marks that the writer
+  forcibly clears; the loader also clears bit 11 defensively, so a hand-edited 1 there is
+  ignored (VA `0x0045E30A`).
+
+All other bits are opaque manager state. A reader must preserve the word verbatim if it
+rewrites the file, must not reject a record because a variable bit is set, and must not read
+a document property out of bits 3/5/7/8–9. The 13-value domain of §3.6.1 is the projection of
+that state for this corpus, not a closed format enumeration. [OBSERVED for the three
+normalised bits and the kind mask; INFERENCE for the per-bit names]
 
 ### 3.6.3 The structural-bit experiment (2 × 2 over 130 files)
 
@@ -375,11 +415,15 @@ every parentId in {0x00FE, 0x00FF} or resolves to an id in the file
 exactly one record has a sentinel parentId and it is the 0x0015 chunk
 chunkOffset strictly ascending ; offset[i+1] == offset[i] + size[i] for adjacent records
 last extent ends at len(Contents)
-idHwm == max(id)                       (corpus property, not a format guarantee)
+idHwm == max(id)                       (writer invariant; loader uses it only as a size hint, §3.5)
 flags & 0x1440 == 0x1440 ; flags & 0x7000 == 0x1000
-flags in the 13-value set of §3.6.1
+flags & 0x8840 == 0x0040               (bit 6 set; bits 11 and 15 clear — writer-normalised, §3.6.2)
 every chunk's u16 type marker is one of the 36 markers of §3.9
 ```
 
-`tools/validate.py` checks the structural subset of these against every corpus; it reports
-0 violations over the 493 shipped documents.
+The 13-value `flags` set of §3.6.1 is a corpus observation, not a rule: only bit 6 = 1 and
+bits 11/15 = 0 are forced by the writer (§3.6.2); bits 3/5/7/8–9 may take any combination a
+future writer assigns.
+
+`tools/validate.py` checks these against every corpus; it reports 0 violations over the 493
+shipped documents.

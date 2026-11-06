@@ -465,8 +465,7 @@ section never overlaps the chunk area (0/493 documents). The first dword is one 
   +0x0A  u32   directory offset (== header u32@0x16)
   +0x0E  u32   textBase        == store + 46 (the header size in the magic)
   +0x12  u32   textEnd         end of the character array (start of the story records)
-  +0x16  u32   0              constant
-  +0x1A  u32   0              constant
+  +0x16  4×u16 element-id ranges  id[] of record i = [b[i], b[i+1]); b[3]-b[0] == sum(n), 488/488
   +0x1E  u32[4] pointer array  offsets of up to 4 text-object records; exactly 3 non-zero
   +0x2E  …                     the character array, [textBase, textEnd)
 ```
@@ -483,10 +482,23 @@ separates frame blocks (chapter 10 §10.3).
 
 
 `[textBase, textEnd)` is plain CP1252 text, not UTF-16: 152 055 bytes over the corpus, median
-180 bytes per document, maximum 13 626, empty in 4 documents. Line breaks are `0D 0A`; other
-control bytes present are `0x0F` ×2411, `0x0C` ×1067 (page/section break), `0x09` ×235, `0x0B` ×35,
-`0x05` ×27. `0x92`/`0x93`/`0x94` occur as CP1252 quotes. The meaning of `0x0F` is [UNKNOWN]; it
-is the most frequent inline code and the best first target for run-level formatting. [OBSERVED]
+180 bytes per document, maximum 13 626. `0x92`/`0x93`/`0x94` occur as CP1252 quotes. [OBSERVED]
+
+Control bytes, all closed by position over all 488 documents with a text store:
+
+| Byte | Meaning | Proof |
+|---|---|---|
+| `0x0D 0x0A` | paragraph break | — |
+| `0x0C` | frame-block separator | 4 798/4 798 are preceded by `CR LF`; every non-empty pool ends with it (471/471) |
+| `0x0F` | table-cell separator | 6 281/6 281 preceded by `CR LF` (and by `CR LF` again before that), never at index 0, never followed by a tag byte, 43 distinct run lengths after it |
+| `0x09` | tab | — |
+| `0x0B` | soft line break | 120/120 occur mid-line |
+| `0x05` | page-number field | 81/81: 48 after the literal text `page `, 33 as a whole `0x0C`-delimited block |
+
+`0x0C` and `0x0F` are **plain separators with no payload** — no count, no attribute byte and no
+tag follows either (the scan for tag bytes `0x00–0x08`, `0x0B`, `0x0E–0x1F` after a separator
+returns zero occurrences). The pool is terminated by `0D 0A 0C` (471/471), and
+`Contents[textEnd .. textEnd+3] == 0D 0A 00` (471/471). [OBSERVED]
 
 ### 13.14.2 Text-object records
 
@@ -501,13 +513,13 @@ offset. All records share one layout:
 +0x04  u16  n             entry count
 +0x06  u16  n             duplicate
 +0x08  u16  2             element size of the id array
-+0x0A  u16  k             0/1/2 — [UNKNOWN]
++0x0A  u16  baseBias      bias switch, inert because base == 0 (1 464/1 464)
 +0x0C  u32  0
 +0x10  u32  0
 +0x14  u16  0
-+0x16  u32  textStart
-+0x1A  u32  bound[n]      n ascending text offsets (the last ≤ textEnd + 2)
-+0x1A+4n  u16 id[n]       n ascending small ids (< 0x100); a paragraph/run id
++0x16  u32  position[0]   first of an (n+1)-element position array; == textBase in 1 464/1 464
++0x1A  u32  position[1..n]  ascending text offsets (the last ≤ textEnd + 2)
++0x1A+4n  u16 id[n]       n ascending small ids (< 0x100); a dense paragraph/run counter
 size == 0x1A + 6·n        1 464/1 464 records, zero exceptions
 ```
 
@@ -519,9 +531,9 @@ Verified over all 1 464 records [OBSERVED]:
 | `u16@+0x04 == u16@+0x06` | 1 464/1 464 |
 | `u16@+0x08 == 2` | 1 464/1 464 |
 | `u16@+0x0C`, `u16@+0x10`, `u16@+0x14` are zero | 1 464/1 464 |
-| `textStart` inside `[textBase, textEnd]` | 1 464/1 464 |
-| `bound[]` non-decreasing and inside `[textStart, textEnd + 2]` | 1 464/1 464 |
-| `id[]` strictly ascending, all `< 0x100` | 1 464/1 464 |
+| `position[0]` equals `textBase` | 1 464/1 464 |
+| `position[]` non-decreasing and inside `[textBase, textEnd + 2]` | 1 464/1 464 |
+| `id[]` strictly ascending, all `< 0x100`, dense (no gaps) | 1 464/1 464 |
 
 The `+2` tolerance is systematic: the third record of 103 documents ends two bytes past
 `textEnd`, i.e. the header's `textEnd` excludes the trailing `CR LF` that the last story still
@@ -534,11 +546,19 @@ record interior is otherwise consistent]
 
 * Closes: "where is Publisher 95/97 text" — it is uncompressed CP1252 at a fixed, self-described
   location inside `Contents`, with a 3-record paragraph index.
-* Still open: the **run-level formatting** (font, size, bold/italic/underline, alignment,
-  numbering). No per-character attribute record has been found; the paragraph ids are the handle
-  that a formatting record would key on. The leading candidate is the `0x0F` control byte inside
-  the character array. [UNKNOWN — experiment: author one paragraph in bold + one underlined,
-  save, and diff the store byte by byte]
+* **Closes the run-formatting question in the negative.** A complete byte accounting of the store
+  over all 488 documents leaves no room for an attribute record: 488 headers (46 bytes, 15 fields)
+  are fully assigned, 1 464 story records are fully assigned (`size == 0x1A + 6n`), and 552 449
+  pool characters are classified into eight control bytes. The only unassigned region,
+  `[textEnd, firstRecord)` (1 027 773 bytes), is unreferenced dead space: it starts with a leftover
+  `CR LF`, its longest runs are 15–45-byte high-byte patterns, and the one ascending `u32` run is a
+  stale copy of a story position array. Nothing in the store can address a per-paragraph or
+  per-run attribute. [OBSERVED]
+  Consequence: Publisher 95/97 run formatting is **not** in the text store. It must be carried by
+  shape-level attributes (chapter 06 §6.7: text colour at `+0x70`, line colour at `+0x23`) and by
+  the document's font and style tables (chapter 11). The `0x0F` byte is a separator, not a
+  formatting escape (§13.14.1). The experiment that would localise the rest: author one bold and
+  one underlined paragraph, save, and diff the shape records and the `0x001E`/`0x001F` tables.
 
 ### 13.14.4 Publisher 97 variant and corpus-wide invariants
 
@@ -605,7 +625,6 @@ base and is reported by the scanner rule, not by a constant offset).
 | Item | Status | Experiment |
 |---|---|---|
 | text → shape linkage, the `Contents` half | `[UNKNOWN]` — the stream half is closed (§13.13): `BTEP`/`BTEC` reach the run tables by chunk offset and `TOKN`/`TCD `/`MCLD` agree on the text-object ordinals. What is missing is one fact: which field of the `Contents` shape record stores that ordinal. Excluded so far: `SYID` ids (2 of 3 documents differ from the ordinal set), `FDPP`/`FDPC` ids, and the shape-chunk `id` (always ≥ `0x100`); the only monotone per-shape candidate is the u32 at shape-chunk `+0x14` (`4k+2` ladder in `CHEKLIST.JSP`) | author a document with two text frames whose contents are swapped, save, and diff every `Contents` shape record against the unchanged `MCLD`/`TOKN` ids — the field that moves is the ordinal |
-| run-level formatting in the 95/97 pool | `[UNKNOWN]` | author one bold and one underlined paragraph, save, diff the store byte by byte (§13.14.3) |
 | `TCD ` offset-array meaning | `[UNKNOWN]` — the framing is closed (§13.10): the chunk is `12 + 4*(count+1)` bytes with `elemSize = 0`, i.e. the offset table *is* the payload (2/2), it is loaded per text object into object slot `0x17` (`FUN_4042278c`) and maintained as an ordered array by `FUN_4040f31b` (VA 0x4040f31b) in lockstep with the object's other per-position arrays. Blocking fact: what the `count+1` ascending u32s index. Excluded: text byte offsets (13 of the 26 values in `CHEKLIST.JSP` `TCD ` id 1 are odd, and a UTF-16LE character boundary is always even) and chunk-relative offsets (`0x3F7` is larger than the 116-byte chunk) | author a 2×2 table whose cells contain text of distinct lengths, save, and test whether the gaps between the values equal those lengths (§13.10) |
 
 ## 13.17 The property-field table in `QS98.DLL` (proven)
@@ -705,7 +724,7 @@ walker reads it back from there):
 
 | class | role | evidence | corpus identity |
 |---|---|---|---|
-| 0 | no table at all — a context that only replays pre-built bytes | `0x40463AD8` entry 0 is all zero; the `FDPC` writer (`FUN_40419fe2`, VA 0x40419fe2) initialises it with 0 | 1 writer, 0 lookups |
+| 0 | no table at all — a context that only replays pre-built bytes | `0x40463AD8` entry 0 is `(0, 0)`, so a lookup would dereference null; the `FDPC` writer (`FUN_40419fe2`, VA 0x40419fe2) initialises its context with 0 | no id can resolve |
 | 1 | **text-run (character) properties**, carrier `FDPC` | every `FDPC` blob's ids and codes match class 1 | 63/63 tags, 5 chunks, 0 exceptions |
 | 2 | **paragraph properties**, carrier `FDPP` | the `FDPP` writer (`FUN_40419d9b`, VA 0x40419d9b) initialises the context with 2 and writes chunk `0x50504446`; every `FDPP` blob matches class 2 | 205/205 tags, 9 chunks, 0 exceptions |
 | 5 | **page/section setup**, carrier `SGP ` | the `SGP ` writer (`FUN_4041a897`, VA 0x4041a897) uses class 5 and writes chunk `0x20504753`; class 5 has exactly the one u32 field `0x200` | `SGP ` is the empty stream in 5/5 |
