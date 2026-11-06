@@ -105,10 +105,23 @@ import struct
 pal = struct.unpack_from('<80I', d, 0x1FE260)
 ```
 
-## 9.3 The PALETTE chunk (`0x0047`) [OBSERVED, 2 samples]
+## 9.3 The PALETTE chunk (`0x0047`) [OBSERVED, 5 samples]
 
-Both Publisher 98 documents (`p98/x/MSPUB.PUB`, `p98/x/ZMSPUB.PUB`) contain exactly
-one PALETTE chunk: marker `0x0047`, **192 bytes**, stamp `0x9696`. Publisher 95 and
+Every Publisher 98 publication contains exactly one PALETTE chunk: marker `0x0047`,
+**192 bytes**, descriptor `0x9696`. The five samples exercise three schemes:
+
+| Document | Scheme name (`+0x0E`, UTF-16LE) | `+0x04` | `+0x06` | `+0x08` | `+0x0A` | Name ends |
+|---|---|---|---|---|---|---|
+| `MSPUB.PUB`, `ZMSPUB.PUB` | `Bluebird` | 0 | 0 | 0 | 0 | `0x1E` |
+| `CLRCHK.JSP` | `(Default)` | 0 | 0 | 0 | 4 | `0x20` |
+| `CHEKLIST.JSP`, `INFOSHET.JSP` | `(Custom)` | 0 | `0xFFFF` | `0xFFFF` | 4 | `0x1E` |
+
+`[OBSERVED]` The name is NUL-terminated UTF-16LE starting at `+0x0E`, zero-padded to
+`+0x90` (the padding is all-zero in 5/5, longest observed name 9 characters). The two
+`0xFFFF` words at `+0x06`/`+0x08` distinguish the "(Custom)" scheme from a named or
+"(Default)" one `[INFERENCE: they read as "no base scheme"]; `+0x0A` is 4 on the two
+"derived" schemes and 0 on the named one. The four `u32` slots at `+0x90…+0x9F` and the
+eight colour references at `+0xA0` are identical in layout across all five. Publisher 95 and
 97 corpora contain **zero** PALETTE chunks (2344 documents), so a 95/97-era document
 uses the built-in palette only.
 
@@ -190,7 +203,7 @@ colours for `DIB`-based metafiles.
   Publisher 98 with a renamed scheme and with modified colours, then diff; or find
   the reader in the binary (the palette parser is not in `MSPUB.EXE` — it is
   presumably inside `MSPUB.M14`, chapter 12 §12.8 and `notes/p98/slices/m14.md`).
-* Exact length of the scheme-name field — `[UNKNOWN]`; "Bluebird" is 8 UTF-16 code
-  units followed by zeros, so field width ≥ 16 bytes and ≤ 0x82 bytes.
+* Scheme-name field — **closed**: UTF-16LE, NUL-terminated, starts `+0x0E`, zero-padded up
+  to `+0x90`; longest observed 9 characters, so the field is 0x82 bytes wide.
 * Case 2/4/6 arithmetic (derived colour spaces) — **[UNKNOWN]**; the helpers are
   `FUN_004c9a60`, `FUN_004c98cf`, `FUN_004c998a`.
