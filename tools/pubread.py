@@ -21,6 +21,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pubcore
+import palette as palette_table
 
 EMU_PER_INCH = 914400
 
@@ -89,6 +90,18 @@ class Reader:
                 self.shapes.append(self._parse_shape(c))
             elif c.type_marker == 0x21:
                 self.images.append(self._parse_image(c))
+
+        self.palette = []
+        for c in self.doc.of_type(0x47):
+            if len(c.data) >= 0xA0 + 32:
+                refs = struct.unpack_from("<8I", c.data, 0xA0)
+                self.palette.append({
+                    "id": c.id,
+                    "size": c.size,
+                    "scheme_name": c.data[0x0E:0x2E].decode("utf-16-le", "replace").rstrip("\0"),
+                    "refs": ["%08x" % r for r in refs],
+                    "rgb": [palette_table.decode_colorref(r) for r in refs],
+                })
 
         try:
             blob = pubcore.read_stream(self.path, "Quill/QuillSub/CONTENTS")
@@ -175,6 +188,7 @@ class Reader:
             "pages": len(self.pages),
             "shapes": len(self.shapes),
             "images": self.images,
+            "palette": self.palette,
             "quill_chunks": sorted({q["name"].strip() for q in self.quill}) if self.quill else [],
             "chunk_types": dict(sorted(collections.Counter(
                 c.type_name for c in self.doc.chunks).items())),
