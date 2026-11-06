@@ -45,7 +45,7 @@ All 130 Publisher 95 documents begin:
 0x0C  u16  125               required when format version == 300 (704 when 200)
 0x0E  u16  ?                 open
 0x10  u16  ?                 open
-0x12  u32  constant 574      NOT an offset
+0x12  u32  text-section off  start of the text store, see chapter 13 §13.14
 0x16  u32  directory offset  see §3
 0x1A  u32  constant 34       NOT an offset
 ```
@@ -63,14 +63,15 @@ Measured across all 128 Publisher 95 templates:
 | `u16 @0x0C` | 1 | `125` in all files |
 | `u16 @0x0E` | 53 | open |
 | `u16 @0x10` | 68 | open |
-| `u32 @0x12` | 1 | `574` (0x23E) in all files |
+| `u32 @0x12` | 1 | `574` (0x23E) in all Publisher 95 files — the text-section offset (640 in 97, 894 in 98) |
 | `u32 @0x16` | per file | directory offset |
 | `u32 @0x1A` | 1 | `34` (0x22) in all files |
 
-Consequence: `0x12` and `0x1A` are **fixed constants** of this format family, not
-offsets into the stream (neither equals the first chunk offset on any file). The
-region `0x22 … 0x23D` is a fixed-size area between the header and the first
-variable data. `0x0E`/`0x10` are probably one 32-bit value split across two `u16`s.
+Correction: `0x12` is **not** a constant — it is the offset of the text section
+(chapter 13 §13.14), which equals 574 for Publisher 95 only because every Publisher 95
+document shares the same prefix; it is 640 in Publisher 97 and 894 in 98. Verified:
+`u32@0x12` points at the `0x002EF0DE` store magic in 493/493 documents, and the section
+`[u32@0x12, u32@0x16)` never overlaps a chunk (0/493). `0x1A` = 34 is still unexplained.
 
 Worked example — `p95/x/MSPUB.PUB`, `Contents` length 2780 (0xADC):
 

@@ -24,9 +24,9 @@ All values measured over the 128-file corpus (`p95/x/**/*.PUB`). [OBSERVED unles
 | 0x0C | u16 | `header_tag` | `125` (0x007D) in 128/128 P95 files; **version-dependent** — see §2.2.1 | gate: value must be in the loader's accepted set |
 | 0x0E | u16 | `document_chunk_id` | id of the DOCUMENT (0x15) chunk, 128/128 | §2.4 |
 | 0x10 | u16 | `page_4_id` | id of the 4th page in the document page order, 128/128 | §2.4 |
-| 0x12 | u32 | `const_574` | `574` (0x0000023E) in 128/128 | 128/128 |
+| 0x12 | u32 | `text_section_offset` | `574` (0x0000023E) in all Publisher 95 files; 640 in 97, 894 in 98 — points at the `0x002EF0DE` text store (chapter 13 §13.14) | 493/493 |
 | 0x16 | u32 | `directory_offset` | offset of the chunk directory | 128/128, §3 |
-| 0x1A | u32 | `const_34` | `34` (0x00000022) in 128/128 — equals the size of the header the loader reads | 128/128 |
+| 0x1A | u32 | `const_34` | `34` (0x00000022) in 128/128 — equals the size of the header the loader reads; still not an offset | 128/128 |
 | 0x1E | u16 | `flags_1e` | `0x0500` ×8, `0x0100` ×87, `0x0300` ×16, `0x0000` ×17 | 128/128 |
 | 0x20 | u16 | `flags_20` | `0x0500` in 128/128 | 128/128 |
 | 0x22 | u16 | descriptor | `0x003A` in 128/128 | 128/128 |
@@ -140,8 +140,10 @@ load normally. [OBSERVED]
 
 Between the 34-byte header and the text store there is a **540-byte block** that is not a chunk:
 it has no directory record, no type marker and no length field, and it always starts at the same
-absolute offset. The constant `574` at header `+0x12` is exactly its end (`0x23E`), and the
-constant `34` at `+0x1A` is exactly its start, so the pair of constants defines the block.
+absolute offset. The text-section offset at header `+0x12` is exactly its end (`0x23E` in
+Publisher 95), and the constant `34` at `+0x1A` is exactly its start, so the pair defines the
+block. (Publisher 97/98 extend the header block itself, so the text section starts at 640 / 894
+there; `+0x12` follows it in every generation.)
 
 Across the 130 P95 documents **537 of its 540 bytes are identical**; exactly three bytes vary
 [OBSERVED]:
@@ -287,7 +289,7 @@ offset  bytes           meaning
 0x0c    7d 00           header tag 125
 0x0e    00 01           document chunk id 0x0100 = 256
 0x10    0a 01           page-4 id 0x010A = 266
-0x12    3e 02 00 00     constant 574
+0x12    3e 02 00 00     text-section offset 574 = 0x23E
 0x16    bc 02 00 00     directory offset 700
 0x1a    22 00 00 00     constant 34
 0x1e    00 05           flags 0x0500

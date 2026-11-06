@@ -166,17 +166,63 @@ Correction to the earlier statement that the table has "no length byte" and a fi
 stride: the stride is `2 + strlen + 1`, and the Publisher 97/98 tables widen every offset
 to 32 bits, which is why a fixed-stride walk fails on those corpora.
 
-## 11.6 Line / border-art style table `0x001F`
+## 11.6 Border art: `0x001F` and the `.BDR` library
 
-One per document. 81 of 130 Publisher 95 documents carry the empty 16-byte form; the rest
-carry **named border-art styles** — the document-side representation of "border art" (the
-markers `0x0046` BORDER_ART / `0x005C` PALETTE from the 2000+ block model do not exist
-here). Names observed include `Basic...Black Dashes`, `Sawtooth`. An entry is
-`[u16 optional prefix] + name + binary drawing blob`; the prefix width is not constant
-(2 or 4 bytes) and the discriminator is `[UNKNOWN]`. [OBSERVED for the structure]
+One `0x001F` per document. 81 of 130 Publisher 95 documents carry the empty 16-byte form;
+the rest carry **named border-art styles**. The marker `0x0046` BORDER_ART of the 2000+
+block model does not exist here. The earlier statement that the entry prefix "is 2 or 4
+bytes, discriminator unknown" is superseded: the entry has a fixed layout. [OBSERVED]
 
-The shipped border-art library lives *outside* the document, in `PUBBRD/*.BDR` catalogue
-files on the CD — a separate format, not part of the `.pub` specification.
+### The `0x001F` entry
+
+```
++0x00  u16      1                 constant in 115/115 populated entries
++0x02  char[42] nameSlot          NUL-terminated ASCII name; bytes after the NUL are
+                                  stale text from a previous longer name
++0x2C  u16      bandTwips         border band width, twips (80, 120, 200, 240, 480, 720 …)
++0x2E  u16      edgeWidthTwips    edge-tile width
++0x30  u16      edgeHeightTwips   edge-tile height
++0x32  u16[8]   tileOffset        byte offsets of the 8 tiles, relative to the entry start
++0x42  …                          the tiles, each a standard memory WMF
+```
+
+Verified over the whole corpus: **115 populated entries, 920 tiles, 920/920 tiles begin
+`01 00 09 00 00 03`** (a `METAHEADER`, type 1, header 9 words, version `0x0300`). Twenty
+further entries live in `0x001F` chunks whose entry table parses under neither width form
+(e.g. `BRCATALG.PUB`, whose first entry is a `u16` id list); those remain `[UNKNOWN]`. The
+eight slots are the border sides **clockwise from the top-left**: TL, top, TR, right, BR,
+bottom, BL, left; the offsets are **not** monotonic and the same tile is often shared by two
+slots, so a reader must take each tile's extent from its own WMF header, never from the gap
+to the next offset. [OBSERVED]
+
+Worked example — `p97/x/PAGEWIZ/AWARD.PUB` `0x001F` id `0x1212`: name `Chain Link`,
+`band = 120`, tile offsets `(642, 1214, 1214, 1782, 2354, 2926, 3506, …)`, the top/TR pair
+sharing offset 1214.
+
+### The `PUBBRD/*.BDR` library
+
+The 15 catalogue files on the CD use a different, much simpler container:
+
+```
++0x00  u16  magic     0x5458 ('X','T')
++0x02  u16  version   1   (all 61 copies across the four CDs)
++0x04  u16  count N
++0x06  char[42][N]    name slots, NUL-terminated, stale text after the NUL
++0x06+42N       N × 22-byte records: bandTwips, edgeWidthTwips, edgeHeightTwips, u16[8]
++0x06+42N+22N   22-byte terminator
++…              the payload tiles, concatenated with no gaps
+```
+
+`size == 6 + 42·N + 22·(N+1) + Σpayload` holds for 61/61 files; the 22-byte record's
+offsets are relative to the record itself, and every payload is a memory WMF (zero
+placeable-WMF or BMP payloads in the whole set). [OBSERVED]
+
+**Documents embed, they do not reference.** Of 527 `0x0021` IMAGE_DATA bodies, **zero** are
+byte-identical to any `.BDR` payload; but 118 documents carry byte-identical border-art
+tiles inside their `0x001F` chunk (900 occurrences, 38 distinct styles), each stored as
+name + original `BORDERS\*.BDR` path + a private copy of the tiles. A reader therefore never
+needs the CD library to render a document, and a `.BDR` file is a catalogue for the UI, not
+a resource the document points at. [OBSERVED]
 
 ## 11.7 Design / object sets `0x0031` and `0x0032`
 
@@ -326,12 +372,27 @@ The 40-byte PAGE form, for reference:
 | `+0x24` | u32 | 0 | — |
 | `+0x28` | u16[count] | child ids | — |
 
-## 11.12 Open
+## 11.12 Publisher 97-era records
+
+Four markers occur in the Publisher 97 corpora and in neither 95 nor 98. All have exact
+size rules; the interiors of three are `[UNKNOWN]`. [OBSERVED]
+
+| Marker | Instances | Size | Parent | Framing |
+|---|---|---|---|---|
+| `0x002F` | 12 | 38, fixed | `0x0016` story container | `+0x04 u16 0x0002`, `+0x06 u16 0x021A`, `+0x08 u16 1`, `+0x0A u16 1`, `+0x0C u16 4`, `+0x1E u16 0x1E95`, `+0x22 u16 0xFFFF`; interior `[UNKNOWN]` |
+| `0x003A` | 342 | 26 … 1 014 | `0x0031` design set | the 26-byte empty form is the u32 container (count 0 at `+0x04`, duplicate `+0x08`, end offset `size − 0x16` at `+0x0C`, `u32 4` at `+0x16`) in 330/330; the 12 populated instances (304…1 014 B) do **not** follow that rule — `[UNKNOWN]` |
+| `0x003B` | 12 | 26, fixed | `0x002F` | byte-identical empty u32 container, 12/12 |
+| `0x003F` | 35 | 180, fixed | `0x0015` document | `+0x04 u32 1`, `+0x08 u32 1`, two 32-bit stamps at `+0x10`/`+0x14`, then a NUL-terminated name (`"Every L7160,"…`); interior `[UNKNOWN]` |
+
+The 26-byte empty form shared by `0x003A`/`0x003B` is the same container shape as the
+`0x0032` L2 form (§11.7) — count, duplicate, end offset, `u16 1`, `u32 0xFFFFFFFF`, one
+`u32` offset — which is why the pair is grouped here rather than with the fixed records.
+
+## 11.13 Open
 
 | Item | Status | Experiment |
 |---|---|---|
 | `0x0028` six application codes | `[UNKNOWN]` | look the constants up as a table in `MSPUB.EXE` |
-| `0x001F` entry prefix width (2 vs 4) | `[UNKNOWN]` — entries start with a 2-byte value ∈ {1,2,4} followed by the NUL-terminated name, but 41/487 chunks do not fit the offset-table walk | save a document with one named border style and diff |
 | `0x001A` 14-byte element field order | `[UNKNOWN]` | save a document that adds one paragraph |
 | `0x0016 +0x04` style id | `[INFERENCE]` | resolve against `0x0026`/`0x001F` entry order |
 | `0x0036` fields | `[UNKNOWN]` | single instance; needs a document exercising print setup |

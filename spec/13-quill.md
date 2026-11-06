@@ -362,16 +362,20 @@ was previously unlocated. [OBSERVED]
 
 All 1 464 records in the 95/97 corpora satisfy the framing below (0 exceptions).
 
+The section is bounded by two header fields: it starts at `Contents u32@0x12` and ends at
+`Contents u32@0x16`; the first chunk of every document starts at or after that end, so the
+section never overlaps the chunk area (0/493 documents). The first dword is one packed value:
+`0x002EF0DE` — low word `0xF0DE` is the magic, high word `0x002E` is the header size (46).
+
 ```
-<store>  <text store>          starts at the version offset above
-  +0x00  u16   0xF0DE          signature, 493/493 documents
-  +0x02  u16   46              header length; textBase = store + 46
+<store>  <text store>          address comes from Contents u32@0x12
+  +0x00  u32   0x002EF0DE      magic | header size (46)
   +0x04  u16   0x012C          format version echo (300)
   +0x06  u16   0x0200          constant
   +0x08  u16   0              constant
   +0x0A  u32   directory offset (== header u32@0x16)
-  +0x0E  u32   textBase        == store + u16@+0x02
-  +0x12  u32   textEnd         end of the character array
+  +0x0E  u32   textBase        == store + 46 (the header size in the magic)
+  +0x12  u32   textEnd         end of the character array (start of the story records)
   +0x16  u32   0              constant
   +0x1A  u32   0              constant
   +0x1E  u32[4] pointer array  offsets of up to 4 text-object records; exactly 3 non-zero
@@ -379,11 +383,15 @@ All 1 464 records in the 95/97 corpora satisfy the framing below (0 exceptions).
 ```
 
 
-The two `u32` at `+0x0E`/`+0x12` and the pointer array at `+0x1E` make the store self-describing: its size
-is `directoryOffset − 0x23E`, which is why the directory offset cannot be derived from the header
-constants.
+The two `u32` at `+0x0E`/`+0x12` and the pointer array at `+0x1E` make the store self-describing. The
+section end comes from `Contents u32@0x16`, **not** from the directory offset: the story records sit
+between the character array and the first chunk, so the section is larger than the array.
 
 ### 13.14.1 Character array
+
+The array is also where table cell structure lives: `0x0F` separates cells, `0x0C`
+separates frame blocks (chapter 10 §10.3).
+
 
 `[textBase, textEnd)` is plain CP1252 text, not UTF-16: 152 055 bytes over the corpus, median
 180 bytes per document, maximum 13 626, empty in 4 documents. Line breaks are `0D 0A`; other

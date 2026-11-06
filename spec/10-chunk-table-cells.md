@@ -2,62 +2,80 @@
 
 **Negative result: the Publisher 95–98 document format has no table record.**
 There is no chunk marker for a table, no cell chunk, and no cell-definition
-record. `[OBSERVED]` over all 493 documents.
+record. `[OBSERVED]` over all 493 documents (43 091 chunks).
 
 This matters for a re-implementer: the markers that libmspub maps to tables and
-cells (`0x0010` TABLE, `0x0063` CELLS, `0x006C` FONT) **occur zero times** in the
-entire corpus. Those values belong to the Publisher 2000+ block model
-(chapter 12), not to this family.
+cells belong to the Publisher 2000+ block model (chapter 12), not to this family.
 
-## 10.1 Evidence
+## 10.1 Markers that do not exist here
 
-| Marker (libmspub 2000+ name) | Occurrences in 493 documents |
+| Marker (2000+ name) | Occurrences in 493 documents |
 |---|---|
 | `0x0010` TABLE | 0 |
 | `0x0063` CELLS | 0 |
+| `0x0066`, `0x0067`, `0x0068`, `0x0069`, `0x006B`, `0x006D` (table geometry / row-col arrays) | 0 each |
 | `0x006C` FONT | 0 |
 | `0x0046` BORDER_ART | 0 |
 | `0x005C` PALETTE | 0 (this family uses `0x0047`, chapter 09) |
 
-## 10.2 How a table is actually represented
+## 10.2 What a table actually is: a text story
 
-A table is drawn as ordinary shape records — a set of rectangles (`0x0005`) and lines
-(`0x0004`) — plus text-bearing frames on top. There is no structural grouping that
-identifies "this is a table"; the only grouping primitive is the GROUP chunk
-(`0x000F`, chapter 07), which a writer may or may not use.
+A table in this format is **text**, laid out in a story with explicit cell and
+frame-block separators. It is not a shape lattice.
 
-Measured examples of grid-like shape sets in the corpus (sibling rectangles with
-identical size under one parent):
+The alternative hypothesis — "a table is a grid of rectangle shapes" — was tested
+and **not supported**: a full-product lattice detector over the corpus finds only
+19 complete lattices, in 5 of 493 documents, all of them children of a GROUP
+(`0x000F`); exactly one of those buckets contains any text-bearing child
+(`PLAIN.PUB` `0x031E`, a decorative 2×2 title/body box) and **none** has per-cell
+text. Real data tables are text stories. `[OBSERVED]`
 
-| Template | Parent | Rects with equal size | Rect size (EMU) |
-|---|---|---|---|
-| `double1.pub` | `0x0119` | 17 of 39 | 342 900 × 19 050 (a row-rule strip) |
-| `CLASSIC.PUB` | `0x02BF` | 27 | 123 825 × 123 825 |
-| `JAZZY.PUB` | `0x027F` | 18 | 285 750 × 285 750 |
+## 10.3 Cell structure in the text pool
 
-`[OBSERVED]` geometry; `[INFERENCE]` that such a set is a table — the format carries
-nothing that distinguishes a table grid from a decorative grid of rectangles. A reader
-that wants to detect tables must use geometry heuristics (equal-size rects sharing edges,
-text frames inside the cells).
+The Publisher 95/97 text pool (chapter 13 §13.14 — the byte range
+`Contents[u32@0x12, u32@0x16)`) uses two inline separators:
 
-## 10.3 Cell text
+| Byte | Meaning in the pool |
+|---|---|
+| `0x0F` | cell separator (advance to the next cell) |
+| `0x0C` | frame-block separator (start a new block) |
+| `0x0D 0x0A` | paragraph break within a cell |
 
-Cell text is ordinary text: a shape carries the text runs described in chapter 13 (or,
-for Publisher 95/97, the in-`Contents` text layer). A table cell is therefore "a shape
-inside a grid", not a cell record. Row/column spans, borders and fill are the
-corresponding shape attributes.
+Splitting the pool on `0x0C` and each block on `0x0F` finds **255 blocks with four or
+more cells in 72 documents, 6 528 cells total**. `[OBSERVED]`
+
+Worked examples (from `notes/p98/slices/tables.md`):
+
+| Document | Table | Evidence |
+|---|---|---|
+| `pricelst.pub` | 19 × 9 price list | text `[0x2AE, 0x6E9)`, story record at `0x1400` |
+| `INVOICE1.PUB` | 13 × 4 invoice | text `[0x26C, 0x3E1)`, story record at `0xE00` |
+
+**Column count** is carried by the shape record that owns the table: a `0x0001`
+chunk's counted tail consists of 14-byte records (chapter 06 §6.3), and the leading
+run of `0xFFFF`-valued entries gives the column count (9 for the price list, 4 for the
+invoice). The cell count then divides exactly by it. `[OBSERVED on both examples;
+INFERENCE that the rule generalises]`
+
+Rows are not stored explicitly: a row boundary is a `0x0D 0x0A` at a cell boundary
+inside the block. `[INFERENCE]`
 
 ## 10.4 Consequence for writers
 
-A writer that must round-trip a document does not need any table-specific code: it
-re-emits the rectangles, lines and text frames. A writer that must *create* a table
-emits a grid of rectangles plus text frames, and should group them with `0x000F` for the
-user's convenience (optional — grouping has no effect on rendering).
+* **Round-trip**: re-emit the text pool verbatim, including `0x0F`/`0x0C`, plus the
+  story records — no table-specific code is needed.
+* **Create**: emit the cell text separated by `0x0F`, blocks separated by `0x0C`, and
+  set the column count in the owning `0x0001` record's 14-byte tail. Cell borders, fills
+  and spans, if drawn at all, are ordinary shapes in the shape layer.
+* A reader that wants to *detect* tables uses the separators, not geometry.
 
 ## 10.5 Open
 
-* Whether Publisher 95's "table" UI writes anything additional that this corpus does not
-  contain (e.g. a table style record). Experiment: build a table in Publisher 95, save,
-  and diff the chunk inventory against a hand-drawn grid. The corpus has no such file.
-* The `double1.pub` strip set (342 900 × 19 050 EMU) is the best candidate for a real
-  table rule; identifying its text frames would confirm the representation.
+* Layout of the 14-byte records in the `0x0001` tail beyond the leading `0xFFFF` run
+  (which is the column count).
+* Whether a row-level attribute (header row, banding) exists anywhere — no candidate
+  field has been found.
+* Cell spans/merges: no evidence in the corpus; a merged cell is probably an absent
+  cell plus geometry in the shape layer. `[UNKNOWN]`
+* The lattice detector is in `tools/p98_tables.py` (`lattice` subcommand) if a future
+  corpus contains a real shape-grid table.
