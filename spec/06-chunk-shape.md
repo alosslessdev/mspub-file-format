@@ -144,9 +144,10 @@ is 18 bytes. The four child records have their own size laws, each `26 + n·elem
 ## 6.4 Counted tail
 
 For `0x0002`/`0x0003` the tail is a counted array: `u16 count` and a duplicate `u16 count`
-at `+0x74`/`+0x76`, elements of 8 bytes starting at `+0x78` (95/97). `0x0001` uses
-14-byte elements (split into two runs by `u16@+0x4A` and `u16@+0x50`, which sum to the
-count in 735/737 chunks). `0x0000` carries `+2k` with a duplicate pair `u16@+0x5C ==
+at `+0x74`/`+0x76`, elements of 8 bytes starting at `+0x78` (95/97). `0x0001` uses a
+**contiguous** array of 14-byte elements from `+0x6A` with `N = (size − 106)/14`
+(§6.4.1); two `u16` at `+0x4A` and `+0x50` partition that array into two runs and sum to
+`N` in 735/737 chunks. `0x0000` carries `+2k` with a duplicate pair `u16@+0x5C ==
 u16@+0x5E == k` and an element size word `0x0002` at `+0x60`; its elements are **chunk ids
 of sibling records** — 746/746 resolve to an existing id, 656/746 to a sibling. `0x0008`
 appears only in the Publisher 98 corpus; its fixed base is 128 and the observed sizes are
