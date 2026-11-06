@@ -1,0 +1,111 @@
+# 17 — Enum domains
+
+Consolidated registry of the enumerated values used across the format. Each entry
+is measured over the 493-document corpus unless marked from binary evidence. Where
+the value domain is known but the meaning of an individual value is not, the
+semantics are marked `[UNKNOWN]` — a reader must preserve unknown values
+unchanged.
+
+## 17.1 Container and header enums
+
+| Field | Location | Domain | Notes |
+|---|---|---|---|
+| `magic` | `Contents +0x00` | `0xACE8`, `0xACE7` | `ACE7` is the legacy form (chapter 02) |
+| `version_magic` | `Contents +0x02` | `0x22`, (`0x2C` = 2000+) | 95/97/98 all write `0x22` |
+| `format_version` | `Contents +0x04` | `200`, `300`, `710` | 300 = this family; loader also accepts the legacy pair 200/710 |
+| `header_tag` | `Contents +0x0C` | `125` (version 300), `704` (version 200) | required value per version |
+| directory record `flags` | directory | `0x1040 | bits`, 13 values | values below; bit meaning `[UNKNOWN]` (chapter 03) |
+
+Directory `flags` domain observed over all 493 documents (non-document records):
+
+```
+0x1440 0x1448 0x14C0 0x1540 0x1548 0x1640 0x1648 0x1660 0x16C0 0x16C8 0x16E0 0x1740 0x1748
+```
+
+The document record (index 0) instead carries `idHighWaterMark`, not a flags value.
+
+## 17.2 Chunk markers → object class
+
+The marker **is** the shape/object type discriminator. Mapping observed in all four
+corpora (counts and per-version presence in
+[blocks/chunk-markers.md](blocks/chunk-markers.md)):
+
+| Marker | Class | Chapter |
+|---|---|---|
+| `0x0000`, `0x0001`, `0x0003`, `0x0007` | free-form shape (polygon/curve family) | 06 |
+| `0x0002`, `0x0003` (98) | image-bearing shape | 08 |
+| `0x0004` | line | 06 |
+| `0x0005` | rectangle | 06 |
+| `0x0006` | shape hosting an embedded OLE object | 15 |
+| `0x0008`, `0x0009`, `0x000A`, `0x000B` | shape variants, Publisher 98 only in corpus | 06 |
+| `0x000F` | group | 07 |
+| `0x0014`, `0x0041` | page / page slot (98) | 05 |
+| `0x0015` | document | 04 |
+| `0x0016` | document-level record holding four chunk ids | 06 |
+| `0x001A`, `0x001C`, `0x001E`, `0x001F`, `0x0023`, `0x0026`, `0x0028`, `0x0029`, `0x002A`, `0x002C`, `0x002D`, `0x002E`, `0x0031`, `0x0032`, `0x0034`, `0x0035`, `0x0037`, `0x0038`, `0x0039` | per-document tables/styles/logos | 11 |
+| `0x0021` | image data blob | 08 |
+| `0x0022` | 18-byte "MO" record | 08, 12 |
+| `0x0047` | palette (98) | 09 |
+
+`[UNKNOWN]` for the exact object class of every marker not listed with a chapter
+chapter reference; those markers have size rules only (chapter 12).
+
+## 17.3 Page
+
+| Field | Location | Domain |
+|---|---|---|
+| `pageKind` | PAGE `+0x18` (95/97), `+0x1C` (98) | `0` ×2604, `2` ×80, `4` ×80, `1` ×9 |
+
+`0` = ordinary page, `2` = composites the following layer page's objects into its own
+z-order, `4` = layer page with an empty child list, `1` = behaves like `0` in the
+corpus (`[UNKNOWN]` distinction). See chapter 05.
+
+## 17.4 Document
+
+| Field | Location | Domain |
+|---|---|---|
+| `coordinateSystem` | DOCUMENT `+0x12` | `0` ×408, `1` ×20, `3` ×17, `6` ×8, `4` ×7, `8` ×35, `5` ×3, `7` ×1 |
+
+`0` is the ordinary page-origin system. `[UNKNOWN]` for the others; the value is
+preserved verbatim by a reader. libmspub interprets `0x0007` as "banner"; the corpus
+contains exactly one document with `7`, so that reading is `[INFERENCE]`.
+
+## 17.5 Geometry
+
+| Field | Location | Domain |
+|---|---|---|
+| `rotation` | shape `+0x04` | `0 … 3599`, 1/100 degree, counter-clockwise |
+| coordinates | shape `+0x06` | signed EMU; `left ≤ right`, `top ≤ bottom` |
+| record length `B` | chunk `+0x03` | per marker, see chapter 12 §12.2 |
+
+## 17.6 Colour
+
+Colour is a 32-bit **colour reference**, not an RGB tuple. The top three bits of the
+high byte select the space (chapter 09 §9.1):
+
+| Tag range | Space | Resolution |
+|---|---|---|
+| `0x00`–`0x1F` | palette index | look up in the 56-entry table |
+| `0x20`–`0x3F` | literal RGB (`COLORREF`: R low byte) | direct |
+| `0x40`–`0x5F`, `0x80`–`0x9F` | derived colour | binary-only transform |
+| `0xA0`–`0xBF` | automatic | `0x4737B` when the low word is 0 |
+| `0xC0`–`0xDF` | brightness-modified reference | binary-only transform |
+| `0x60`–`0x7F`, `0xE0`–`0xFF` | returned unchanged | — |
+
+The 56-entry default palette is tabulated in chapter 09 §9.2 and is available to
+code as `tools/palette.py` (generated from that table, with `decode_colorref`).
+
+## 17.7 Version signatures
+
+| Observation | P95 | P97 | P98 |
+|---|---|---|---|
+| DOCUMENT size | base | base + 30 | base + 72 |
+| PAGE record base | `0x24` | `0x24` | `0x28` |
+| PAGE descriptor bytes `+0x02/+0x03` | `1A 1A` | `1A 1A` | `1E 1E` |
+| page slots | `0x14` | `0x14` | `0x14`, `0x41` |
+| shape record | base | base | base + 8 (image-bearing shapes +24) |
+| text engine | in `Contents` | in `Contents` | `Quill/QuillSub/CONTENTS` |
+| drawing layer | none | none | `Escher/EscherStm` |
+| palette chunk `0x47` | absent | absent | present |
+
+See chapter 18 for the per-chunk delta table.
