@@ -149,9 +149,42 @@ Both are enforced by `tools/validate.py` (`image_data_length_prefix`, `image_dat
 * `0x0039` is a 48-byte (56 in 98) document-level record with no image children — the
   earlier suggestion that it is image-bearing was based on a misread marker (`39` decimal
   = `0x27`); its role is documented in chapter 11 and its *purpose* is `[UNKNOWN]`.
-* The 24 bytes added to the Publisher 98 `0x0002`/`0x0003` fixed part — `[UNKNOWN]`. The
-  five P98 publications carry one gallery instance each and all five payloads are
-  byte-identical, so there is no differential. Landmarks: the `0xFFFFFFFF` word at `+0x70`
-  (95/97) sits at `+0x78` in 98, and the count fields moved from `+0x74` to `+0x8C`.
 * `0x0027` `+0x0A`/`+0x0E` (`dx`, `dy`) units — `[UNKNOWN]`; the values (−793, +613) are far
   too small to be EMU and may be a crop offset in metafile units.
+
+Closed since the previous revision: the Publisher 98 24-byte growth; see §8.7.1.
+
+### 8.7.1 The Publisher 98 24-byte growth — located, not decoded
+
+The counted tail of `0x0002`/`0x0003` starts at the record's `B` byte in **both**
+generations, so the growth is entirely inside the fixed part: `size == B + 10 + 8·N` with
+`B = 116`, `N` at `+0x74` (95/97) and `B = 140`, `N` at `+0x8C` (98) — 3 643/3 643 chunks
+over the four corpora. [OBSERVED]
+
+The 24 bytes split into two insertions, each measured against a field that kept its
+meaning:
+
+| Insertion | Evidence | Where it lands in 98 |
+|---|---|---|
+| 8 bytes | e.g. `p95/x/PAGEWIZ/PLAIN_CD.PUB` id `0x0188` and `p97/x/MSPUB.PUB` id `0x011A` carry the `FE FF` word at `+0x29`, the P98 records at `+0x31`; the `u32 0xFFFFFFFF` sits at `+0x70` (95/97) and `+0x78` (98) | somewhere before `+0x29` — the 8-byte insertion chapter 06 §6.3 localises for the simple primitives (`00 E4 C0 07 00 E4 C0 00 00` over `+0x21…+0x29`), which is where the P98 `0x0002` records carry the same run |
+| 16 bytes | the count header moves `+0x74` → `+0x8C` while the sentinel moved only `+0x78` | a 16-byte block at `+0x7C…+0x8B`, between the sentinel and the count header |
+
+All ten P98 `0x0002`/`0x0003` instances (one of each per publication, all in the gallery
+page) are zero at `+0x7C…+0x8B` and carry the sentinel at `+0x78` (10/10), and the five
+payloads of each marker are byte-identical, so the *content* of the 16-byte block is not
+exercised anywhere on the CD. `[OBSERVED for the position and the zero fill; UNKNOWN for
+the fields]`
+
+What the 24 bytes provably are **not**: not a longer trailing array (the array still
+starts at `B + 10` with 8-byte elements, 10/10), not a second counted list (no count pair
+appears in `+0x7C…+0x8B`), and not an append — the sentinel that 95/97 places at `+0x70`
+already sits 8 bytes later at `+0x78`, so the growth is inserted before it and the fixed
+part is shifted, not extended. `[OBSERVED for the shift; UNKNOWN for which field each of
+the two insertions belongs to]`
+
+The P98 record reader that would name the fields was not isolated in
+`notes/p98/decomp98`: the `+0x8C`/`+0x96`/`B`-based hits there are runtime-struct offsets,
+and no function was found that indexes a chunk buffer by the record's `B` byte. The
+remaining blocking fact is the meaning of the 16-byte block at `+0x7C…+0x8B`; the one
+experiment that settles it is a P98 document with a non-gallery picture on a page (the
+five gallery records are all-zero in that range).

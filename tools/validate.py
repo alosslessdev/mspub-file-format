@@ -65,6 +65,9 @@ CHECKS = [
     "record_length_byte", "record_min_size", "record_0x22_is_18", "quill_list_terminates", "object_link_resolves",
     "group_size_equation", "group_count_pair", "group_bbox_ordered",
     "shape_colour_ref", "shape_text_colour", "shape8_tail",
+    "rec_0x3a_container", "rec_0x3b_empty", "rec_0x3f_label",
+    "rec_0x4e_element_size", "rec_0x52_container", "borderart_0x1f_container",
+    "image_record_base",
     "header_document_id", "header_post_header_offset", "header_page_id_resolves",
     "directory_id_hwm_is_max_id", "directory_flags_writer_bits",
 ]
@@ -254,6 +257,106 @@ def check_file(path: str, stats: collections.Counter, failures: list):
             x0, y0, x1, y1 = struct.unpack_from("<iiii", c.data, 6)
             if x0 > x1 or y0 > y1:
                 fail("group_bbox_ordered", "id=%#06x box=(%d,%d,%d,%d)" % (c.id, x0, y0, x1, y1))
+
+    # ---- spec/11 §11.12: Publisher 97-era records (0x003A/0x003B/0x003F) ----------
+    # 0x003A is a u32 offset-table container in both the empty and the populated form:
+    # count duplicated at +0x04/+0x08, end == size-0x16, last slot == end.
+    for c in doc.of_type(0x3A):
+        d = c.data
+        if len(d) < 0x1A:
+            fail("rec_0x3a_container", "id=%#06x size=%d short" % (c.id, c.size))
+            continue
+        n = struct.unpack_from("<I", d, 4)[0]
+        n2 = struct.unpack_from("<I", d, 8)[0]
+        end = struct.unpack_from("<I", d, 0x0C)[0]
+        if (n != n2 or end != c.size - 0x16 or c.size < 0x16 + 4 * (n + 1)
+                or struct.unpack_from("<H", d, 0x10)[0] != 1):
+            fail("rec_0x3a_container", "id=%#06x size=%d n=%d" % (c.id, c.size, n))
+        elif struct.unpack_from("<I", d, 0x16 + 4 * n)[0] != end:
+            fail("rec_0x3a_container", "id=%#06x last slot != end" % c.id)
+
+    for c in doc.of_type(0x3B):
+        if (c.size != 26 or struct.unpack_from("<I", c.data, 4)[0] != 0
+                or struct.unpack_from("<I", c.data, 0x0C)[0] != 4
+                or struct.unpack_from("<I", c.data, 0x16)[0] != 4):
+            fail("rec_0x3b_empty", "id=%#06x size=%d" % (c.id, c.size))
+
+    for c in doc.of_type(0x3F):
+        if c.size != 180 or struct.unpack_from("<I", c.data, 8)[0] != 1:
+            fail("rec_0x3f_label", "id=%#06x size=%d" % (c.id, c.size))
+
+    # ---- spec/11 §11.11.2: 0x004E/0x004F/0x0050 share a header whose +0x0E word is
+    # the element size, so size == 0x14 + elementSize*n.
+    for tm, elem in ((0x4E, 45), (0x4F, 11), (0x50, 5)):
+        for c in doc.of_type(tm):
+            if c.size < 0x14:
+                fail("rec_0x4e_element_size", "id=%#06x size=%d short" % (c.id, c.size))
+                continue
+            n, n2, e = struct.unpack_from("<HHH", c.data, 0x0A)
+            if n != n2 or e != elem or c.size != 0x14 + elem * n:
+                fail("rec_0x4e_element_size", "id=%#06x n=%d e=%d size=%d"
+                     % (c.id, n, e, c.size))
+
+    # ---- spec/11 §11.11.1: 0x0052, 40 + 34*n with a 30-byte record size word and a
+    # 0x7FFFFFFF terminator after the sorted key array.
+    for c in doc.of_type(0x52):
+        d = c.data
+        if len(d) < 0x28:
+            fail("rec_0x52_container", "id=%#06x size=%d short" % (c.id, c.size))
+            continue
+        n, n2 = struct.unpack_from("<HH", d, 0x12)
+        elem = struct.unpack_from("<H", d, 0x16)[0]
+        if n != n2 or elem != 0x1E or c.size != 40 + 34 * n:
+            fail("rec_0x52_container", "id=%#06x n=%d elem=%d size=%d"
+                 % (c.id, n, elem, c.size))
+        elif struct.unpack_from("<I", d, 0x24 + 4 * n)[0] != 0x7FFFFFFF:
+            fail("rec_0x52_container", "id=%#06x missing sentinel" % c.id)
+
+    # ---- spec/11 §11.6: 0x001F is an offset-table container in two widths; the form is
+    # detected by exact fit (the (A,B) stamp is 0x0404 in every instance) and the last
+    # slot always equals the end offset.
+    for c in doc.of_type(0x1F):
+        d = c.data
+        L = c.size
+        w16 = (L >= 0x0E
+               and struct.unpack_from("<H", d, 6)[0] == struct.unpack_from("<H", d, 4)[0]
+               and struct.unpack_from("<H", d, 8)[0] == L - 0x0E)
+        w32 = (L >= 0x10
+               and struct.unpack_from("<I", d, 8)[0] == struct.unpack_from("<I", d, 4)[0]
+               and struct.unpack_from("<I", d, 0x0C)[0] == L - 0x16)
+        if w16 == w32:
+            fail("borderart_0x1f_container", "id=%#06x size=%d form ambiguous" % (c.id, L))
+            continue
+        if w16:
+            n = struct.unpack_from("<H", d, 4)[0]
+            base, w, end = 0x0E, 2, L - 0x0E
+        else:
+            n = struct.unpack_from("<I", d, 4)[0]
+            base, w, end = 0x16, 4, L - 0x16
+        if base + w * (n + 1) > L:
+            fail("borderart_0x1f_container", "id=%#06x n=%d overflows size=%d"
+                 % (c.id, n, L))
+            continue
+        offs = struct.unpack_from("<%d%s" % (n + 1, "H" if w == 2 else "I"), d, base)
+        if offs[-1] != end:
+            fail("borderart_0x1f_container", "id=%#06x last slot %#x != end %#x"
+                 % (c.id, offs[-1], end))
+
+    # ---- spec/8 §8.7.1: the counted tail of 0x0002/0x0003 starts at the record's B
+    # byte in both generations (95/97 B=116, 98 B=140), elements 8 bytes.
+    for tm in (0x02, 0x03):
+        for c in doc.of_type(tm):
+            b = c.data[3]
+            if b not in (116, 140) or c.size < b + 10:
+                continue
+            n, n2 = struct.unpack_from("<HH", c.data, b)
+            if n != n2 or c.size != b + 10 + 8 * n:
+                fail("image_record_base", "id=%#06x B=%d n=%d size=%d"
+                     % (c.id, b, n, c.size))
+            if (b == 140 and len(c.data) >= 0x8C
+                    and (struct.unpack_from("<I", c.data, 0x78)[0] != 0xFFFFFFFF
+                         or c.data[0x7C:0x8C] != b"\x00" * 16)):
+                fail("image_record_base", "id=%#06x 98 tail landmarks" % c.id)
 
     # Embedded-object linkage: every 0x0022 ordinal must name an Objects/Object N storage.
     try:

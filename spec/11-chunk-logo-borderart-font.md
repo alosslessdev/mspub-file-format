@@ -212,13 +212,15 @@ Publisher 97/98, and the form is detected by exact fit, because `(A, B)` stays
 
 | Form | Counts | Header | Offsets |
 |---|---|---|---|
-| W16 (Publisher 95) | 130/130 `p95` (43 populated, 87 empty 16-byte) | `u16@+0x04` == `u16@+0x06`, `u16@+0x08` == `size − 0x0E` | `u16[n+1]` at `+0x0E`, relative to `+0x0E` |
-| W32 (Publisher 97/98) | 107 `p97`, 250 `p97deluxe`, 5 `p98` (all `p97`/`p97deluxe`/`p98` except one P95-format file) | `u32@+0x04` == `u32@+0x08`, `u32@+0x0C` == `size − 0x16` | `u32[n+1]` at `+0x16`, relative to `+0x16` |
+| W16 (Publisher 95) | 130 `p95` + 1 `p97` (43 populated, 87 empty 16-byte in `p95`) | `u16@+0x04` == `u16@+0x06`, `u16@+0x08` == `size − 0x0E` | `u16[n+1]` at `+0x0E`, relative to `+0x0E` |
+| W32 (Publisher 97/98) | 107 `p97`, 250 `p97deluxe`, 5 `p98` | `u32@+0x04` == `u32@+0x08`, `u32@+0x0C` == `size − 0x16` | `u32[n+1]` at `+0x16`, relative to `+0x16` |
 
+Every one of the 493 chunks matches exactly one row (0 ambiguous, 0 matching neither).
 The slot table is `n+1` slots: the **last slot always equals the end offset** (144/144
 populated chunks, all corpora), and the first slot equals the table size `w·(n+1)` in
-109/144. The remaining 35 chunks put a prefix block before the entry offsets: a
-`0xFFFF`/`0xFFFFFFFF` fence plus an id list whose words occupy consecutive slots
+109/144. The remaining 35 chunks fail only that first-slot test; in all, 45 chunks
+(116 slots) mix non-offset words into the table — a `0xFFFF`/`0xFFFFFFFF` fence (45 words)
+plus small values `0x0…0x12` (71 words), one id list occupying consecutive slots
 (`BRCATALG.PUB`: slots `[0x2C, 0xFFFF, 1, 2, … 0x12, 0xC66, 0x1036]`, the 18 ids being one
 block and `0xC66` the second entry). Their entries are located by the *tail* slots, which
 is why a reader that only trusts `offs[0]` sees them as unparsable. [OBSERVED]
@@ -237,8 +239,9 @@ is why a reader that only trusts `offs[0]` sees them as unparsable. [OBSERVED]
 ```
 
 The entry prefix is **always two bytes**; it is the offset *slots* that are 2 or 4 bytes
-wide. Measured over the whole corpus: **144 populated chunks, 139 name-carrying entries,
-42 distinct names, 920 tiles, 920/920 tiles begin `01 00 09 00 00 03`** (a `METAHEADER`,
+wide. Measured over the whole corpus (unique entry offsets per chunk): **144 populated
+chunks, 139 name-carrying entries, 42 distinct names, 1 112 tile slots, 1 112/1 112 tiles
+begin `01 00 09 00 00 03`** (a `METAHEADER`,
 type 1, header 9 words, version `0x0300`). The eight slots are the border sides
 **clockwise from the top-left**: TL, top, TR, right, BR, bottom, BL, left; the offsets are
 **not** monotonic and the same tile is often shared by two slots, so a reader must take
@@ -396,6 +399,91 @@ children of the DOCUMENT except `0x004C`/`0x0052`, which hang off `0x0045`. [OBS
 Two further markers, `0x004E`/`0x004F`/`0x0050`, are Publisher-98-only and occur in
 `CHEKLIST.JSP` alone; they share one header (§11.11.2).
 
+### 11.11.1 `0x0052` payload — per-shape metadata with persisted pointers
+
+`0x0052` hangs off `0x0045`, one per document, and is populated in 3 of the 5 P98
+publications (110 records; `MSPUB.PUB`/`ZMSPUB.PUB` carry the empty 40-byte form). [OBSERVED]
+
+```
++0x00 u16 0x0052
++0x02 u16 0x1212
++0x04 u32 0                 three zero dwords through +0x0F (5/5)
++0x10 u16 0
++0x12 u16 N                 duplicate at +0x14
++0x16 u16 0x001E            record size (30)
++0x18 u16 state             0 / 2 / 9, per document
++0x1A u32 0
++0x1E u32 0
++0x22 u16 0
++0x24 u32[N] keys           strictly ascending and distinct (5/5)
++0x24+4N    u32 0x7FFFFFFF  sentinel (5/5)
++0x28+4N    N × 30-byte records
+```
+
+The 30-byte record (110/110 of the shape):
+
+| Offset | Width | Field | Observed |
+|---|---|---|---|
+| `+0x00` | u32 | tag | `1` in 109, `2` in the `INFOSHET.JSP` record |
+| `+0x04` | u32 | ordinal | 1 … 114, never equal to the chunk-id space |
+| `+0x08` | u32 | ptrA | absolute address in one per-document heap range (`0x3177xxxx` for `CHEKLIST.JSP`, `0x0286xxxx`/`0x0288xxxx` for `CLRCHK.JSP`/`INFOSHET.JSP`) |
+| `+0x0C` | u32 | ptrB | same range (`ptrB > ptrA` in 103/110, `<` in 7) |
+| `+0x10` | u16 | flags | `0x10` ×107, `0x40` ×2, `0x50` ×1 |
+| `+0x12` | f32 | const | `0xCB18967C` = −9 999 996.0, 110/110 |
+| `+0x16` | f32 | const | `0xCB18967C` = −9 999 996.0, 110/110 |
+| `+0x1A` | f32 | value | `18.0` ×16 (the two documents whose flags include `0x40`/`0x50`), `0.0` ×94 |
+
+What the record provably is **not** [OBSERVED]:
+
+* not a chunk-id map — 0 of the 110 keys and 0 of the 110 ordinals resolve to a chunk id
+  in their own document;
+* not offsets/lengths — `ptrA`/`ptrB` are 3–4 orders of magnitude larger than the chunk
+  (`0x0286_3DD4` … `0x3177_8430` against a 550-byte chunk and a ≤ 4 MB document) and they
+  differ per document while the record count does not, so they are **persisted pointer
+  values**, not chunk-relative data (`[INFERENCE]`: heap addresses leaked into the file by
+  the writer — a reader must ignore them);
+* not geometry — the two `−9 999 996.0` words are bit-identical in every record and are a
+  sentinel for "unset", not a coordinate.
+
+The keys are shape ordinals: on all 3 populated documents the key set is a superset of
+`{v >> 16}` of the `0x004C` value array (15 ⊇ {1,4,5,…}, 94 ⊇ {5,7,8,…}, 1 ⊇ {1}), i.e.
+the same 16.16 ordinal scale. The record's `+0x04` ordinal is *not* keyed by position, so
+the map is key → record via `+0x04`. Which document-level object owns the ordinal is
+`[UNKNOWN]` (the ordinals run to 114 while the keys stop at 0x7B).
+
+### 11.11.2 `0x004E` / `0x004F` / `0x0050` — print/checklist sub-records
+
+All three are children of a `0x000A` shape in `CHEKLIST.JSP` (2 instances each: ids
+`0x0150`/`0x0153` (`0x004E`), `0x0128`/`0x0156` (`0x004F`), `0x0111`/`0x0129` (`0x0050`))
+and occur nowhere else in the 493 documents. They share one header, and it carries the
+element size — which is why the size rule is exact even though each marker has only two,
+differently sized, instances: [OBSERVED]
+
+```
++0x00 u16 marker
++0x02 u16 0x0A0A
++0x04 u32 0           6/6
++0x08 u16 0           6/6
++0x0A u16 n           duplicate at +0x0C (6/6)
++0x0E u16 elementSize 45 / 11 / 5 by marker
++0x10 u16 field       1 in the two `0x004E` records, 0 in `0x004F`/`0x0050`
++0x12 u16 field       0 in five records, 2 in `0x004E` id `0x0153`
++0x14 ...             n × elementSize
+```
+
+`size == 0x14 + elementSize·n` in 6/6 instances:
+
+| Marker | elementSize | Instances (size, n) | Elements |
+|---|---|---|---|
+| `0x004E` | 45 | 2 × (290, 6) | 6 × 45-byte records; element 0 is a prologue block (`FF FF`, a `u16 1` and four `0x39` words), elements 1–5 carry a leading `u16` in {0x40,0x50,0x60,0x70} (or 0 when empty) and repeated `0xC0E4` marker words |
+| `0x004F` | 11 | (306, 26), (207, 17) | `{u16 kind ∈ 1…5, u16 row, u16 col, u8 pad == 0, u32 value}` — 43/43 elements; `row`/`col` are byte-doubled ordinals (`0x0101`, `0x0202` …, `0x0201` once) and `value` ∈ {`0x711BF`, `0x25350`, `0x37CF8`, `0x394C7`, `0x5E817`, `0x882D8`, `0x83B67`, `0xA8EB7`}, i.e. EMU coordinates in the 0.17…0.76 in range |
+| `0x0050` | 5 | (155, 27), (110, 18) | `{u16 id, u16 id, u8 flag}` — 45/45 elements with both id words equal; `flag` is 0 except the final two elements, which repeat the last id with flag 2 then 1 |
+
+Interpretation [INFERENCE]: `0x0050` is an ordered page/row id list with two trailing
+markers, `0x004F` a per-cell grid record (row, column, EMU x), `0x004E` the page/checklist
+layout block; the `0xC0E4` words are the same unset-colour doublet chapter 06 §6.3 records
+in shape bodies. Field semantics inside the 45-byte element remain `[UNKNOWN]`.
+
 ### `0x0041` is a page slot
 
 `0x0041` is byte-identical to a 40-byte Publisher 98 PAGE (`0x0014`) except for two fields:
@@ -439,7 +527,7 @@ size rules; `0x003A` and `0x003F` are now mapped. [OBSERVED]
 | Marker | Instances | Size | Parent | Framing |
 |---|---|---|---|---|
 | `0x002F` | 12 | 38, fixed | `0x0016` story container | `+0x04 u16 0x0002`, `+0x06 u16 0x021A`, `+0x08 u16 1`, `+0x0A u16 1`, `+0x0C u16 4`, `+0x1E u16 0x1E95`, `+0x22 u16 0xFFFF`; interior `[UNKNOWN]` |
-| `0x003A` | 342 (95 `p97`, 247 `p97deluxe`) | 26 … 1 014 | `0x0031` design set, 342/342 | u32 container: `u32@+0x04 == u32@+0x08` (count), `u32@+0x0C == size − 0x16` (end), `u16 1` at `+0x10`, `u32 0xFFFFFFFF` at `+0x12`, `u32[n+1]` slots at `+0x16` with slot *n* == end — **all 342, the 12 populated included**; the slots index a record arena (below) |
+| `0x003A` | 342 (95 `p97`, 247 `p97deluxe`) | 26 … 1 014 | `0x0031` design set, 342/342 | u32 container: `u32@+0x04 == u32@+0x08` (count), `u32@+0x0C == size − 0x16` (end), `u16 1` at `+0x10`, a header word at `+0x12` (`0xFFFFFFFF` in all 330 empty records, 6…56 in the 12 populated), `u32[n+1]` slots at `+0x16` with slot *n* == end — **all 342, the 12 populated included**; the slots index a record arena (below) |
 | `0x003B` | 12 | 26, fixed | `0x002F`, 12/12 | one byte body, 12/12: `3b 00 04 04  00000000 00000000 04000000 0100 ffffffff 04000000` |
 | `0x003F` | 35 | 180, fixed | `0x0015` document, 35/35 | label/label-sheet template record — full map below |
 
@@ -462,7 +550,8 @@ follow" the container rule. They do: `u32@+0x0C == size − 0x16` and slot *n* =
 +0x04 u32 nEntries            duplicate at +0x08
 +0x0C u32 end                 == size − 0x16
 +0x10 u16 1
-+0x12 u32 0xFFFFFFFF          sentinel
++0x12 u32 headerWord          0xFFFFFFFF in the 330 empty records, 6…56 in the 12 populated
+                              (pointer to / size of the index block; [UNKNOWN])
 +0x16 u32[n+1] slots          relative to +0x16; slot n == end; the table ends at
                               0x16 + 4·(n+1), where the arena begins
       arena: records at the slot targets
@@ -537,6 +626,10 @@ margin order and the `+0x04` flag]`
 | `0x0031` array B (`{u16 id, u16 value}` pairs) | `[UNKNOWN]` semantics; framing proven (1 803/1 803) | correlate the value with the object's page or z-order |
 | `0x0031` fourth instance (342 documents) | `[UNKNOWN]` role — no `0x0032` child, not referenced from `+0x48/+0x56/+0x58` | diff a document before and after adding a user design |
 | `0x0032` non-monotone offset variant | `[UNKNOWN]` — 4 instances in `p97/x/PAGEWIZ/{JAZZY,PLAIN}.PUB` with `offs[0] = 5` | diff a save that adds one object name |
-| Publisher 98 font prefix byte | `[UNKNOWN]` — `0xCC` for `Times New Roman` where 95/97 write `0x00` | needs a P98 document authored outside the CD samples |
-| `0x0052` 30-byte record semantics | `[UNKNOWN]` — each record starts `u32 1`, the key, two per-document pointer-like `u32`s, a `u16` in {16, 64, 80}, then `0xCB18967C` (= f32 −9 999 996.0) twice and f32 18.0/0.0 | needs a P98 document with more than one text frame |
-| `0x004E` / `0x004F` / `0x0050` framing | `[UNKNOWN]` — 2 instances each (290 B, 207/306 B, 110/155 B), all under a `0x000A` shape in `CHEKLIST.JSP` | same |
+| `0x003A` arena record tags | `[UNKNOWN]` semantics of the `u32 tag` (`1` ×288, `4` ×1) and of the ordinal payload (0/1/2); framing proven (289/289) | correlate the tag with the design object's type; a design containing a text object other than "Your Email Address" widens the tag set |
+| `0x003A` non-offset slot words | `[UNKNOWN]` — 116 slot words in 45 chunks are `< 4·(n+1)` (values `0x0…0x12`) or `0xFFFF`/`0xFFFFFFFF`; a chained/`free` idiom is `[INFERENCE]` | dump the reader that walks the slots (97 EXE, no VA yet) |
+| `0x003F` margin order and `+0x04` | `[UNKNOWN]` — four EMU margins at `+0x14…+0x20` and a `0/1` word at `+0x04`; only their EMU scale is proven | diff the same template saved with different page margins |
+| `0x004E` 45-byte element interior | `[UNKNOWN]` — element size (45) and count (6) are proven 2/2; the `0xC0E4` words and the leading `u16` values are not decoded | author a third checklist with a different row count |
+| `0x0052` `+0x04` ordinal owner | `[UNKNOWN]` — ordinals run 1…114 and are not chunk ids; `ptrA`/`ptrB` are persisted heap addresses | open `CLRCHK.JSP` and step the `0x0052` reader (98 EXE, no VA yet) |
+| `0x001F` prefix block (`0xFFFF` + id list) | `[UNKNOWN]` semantics — 35 chunks carry it, the entry offsets after it parse (144/144 last-slot == end) | dump the 97 EXE reader for `0x001F` |
+| Publisher 98 font first prefix byte | re-scoped: proven **not** a face property (`Lucida Handwriting`/`Harrington` = `0x00` in `CHEKLIST.JSP`, `0x4D` in `INFOSHET.JSP`); `0xCC`/`0x4D` are per-document entry state | save one P98 document twice, toggling the text that uses `Impact`/`Book Antiqua`, and diff the `0x001E` entry |
