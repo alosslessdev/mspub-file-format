@@ -21,9 +21,10 @@ Root-level streams/storages observed:
 | `Quill` | storage | **Publisher 98 only**; `Quill/QuillSub/CONTENTS` |
 | `Escher` | storage | **Publisher 98 only** (verify per corpus); `Escher/EscherStm` |
 
-Corpus census: the Publisher 95 CD has 0 files with a `Quill` storage and 0 with
-`Escher`; the Publisher 97 CD (248 files) also has none. Both appear only in the
-Publisher 98 corpus.
+Corpus census: none of the 358 Publisher 95 / 97 documents has a `Quill` or
+`Escher` storage; both appear only in the Publisher 98 corpus (2 .PUB + 3 .JSP
+publications). The three `.JSP` files on the Publisher 98 CD (`CHEKLIST.JSP`,
+`CLRCHK.JSP`, `INFOSHET.JSP`) are complete Publisher publications, not scripts.
 
 ## 2. `Contents` header [OBSERVED]
 
@@ -75,14 +76,20 @@ Worked example — `p95/x/MSPUB.PUB`, `Contents` length 2780 (0xADC):
 
 ## 3. Chunk directory [OBSERVED]
 
-At `directory offset`: `u16 count`, then `count` × 10 bytes:
+At `directory offset`:
 
 ```
-u16 seqSkip     unexplained; varies (0x16C0, 0x1640, 0x0123, ...)
-u16 id          chunk id, unique within the document
-u16 parentId    id of the parent chunk; 0x00FE for the document record
-u32 chunkOffset byte offset of the chunk inside Contents
+u16 count                  number of records
+u16 idHighWaterMark        == max(id) in every measured file
+count × 10 bytes:          {u16 id, u16 parentId, u32 chunkOffset, u16 flags}
+10 zero bytes
+first chunk
 ```
+
+`parentId` is `0x00FE`/`0x00FF` for the document record. `flags` is a per-record
+attribute word drawn from a closed 13-value domain `0x1040 | bits` for
+non-document records (modal value 0x1640); record 0 carries `idHighWaterMark`.
+Semantics of the bits are still open — see chapter 03. [OBSERVED]
 
 Chunks appear in ascending `chunkOffset` order, therefore
 `chunkSize = next.chunkOffset - chunk.chunkOffset`, and the last chunk extends to

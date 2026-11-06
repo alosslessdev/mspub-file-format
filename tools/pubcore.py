@@ -20,7 +20,9 @@ Verified facts (see notes/EVIDENCE.md):
      0x1A u32 unknown offset (varies)
  * Directory at trailer offset:
      u16 count
-     count * 10-byte records: u16 seqSkip, u16 id, u16 parentId, u32 chunkOffset
+     u16 idHighWaterMark   (== max(id) in every measured file)
+     count * 10-byte records: u16 id, u16 parentId, u32 chunkOffset, u16 flags
+     then 10 zero bytes, then the first chunk
  * Each chunk starts with a u16 type marker; payload length is derived from the
    next chunk offset in the directory (chunks are stored in ascending order).
 """ 
@@ -71,11 +73,16 @@ class Chunk:
     id: int
     parent: int
     offset: int
-    seq_skip: int
+    flags: int
     type_marker: int
     size: int
     data: bytes
     children: List[int] = field(default_factory=list)
+
+    @property
+    def seq_skip(self) -> int:
+        """Deprecated alias for `flags` (older tooling used this name)."""
+        return self.flags
 
     @property
     def type_name(self) -> str:
@@ -151,13 +158,14 @@ def parse_contents(path: str, contents: Optional[bytes] = None) -> Document:
     version_magic = d[2]
     trailer_offset = struct.unpack_from("<I", d, 0x16)[0]
     count = struct.unpack_from("<H", d, trailer_offset)[0]
+    id_high_water = struct.unpack_from("<H", d, trailer_offset + 2)[0]
     recs = []
-    p = trailer_offset + 2
+    p = trailer_offset + 4
     for _ in range(count):
         if p + 10 > len(d):
             break
-        seq_skip, cid, parent, off = struct.unpack_from("<HHHI", d, p)
-        recs.append((seq_skip, cid, parent, off))
+        cid, parent, off, flags = struct.unpack_from("<HHIH", d, p)
+        recs.append((flags, cid, parent, off))
         p += 10
 
     # Order by file offset to derive chunk extents.

@@ -155,6 +155,8 @@ def scan(docs, max_start=MAX_START):
             tot_chunks += 1
             tot_bytes += L
             chunk_n[tm] += 1
+            if data.endswith(b"\x00\x00"):
+                end0000[tm] += 1
             base = c.offset
 
             # --- exhaustive existence test over every start offset ----------
@@ -209,7 +211,8 @@ def scan(docs, max_start=MAX_START):
                     if payload is not None and len(payload) in (1, 2, 4):
                         st["values"][key][int.from_bytes(payload, "little")] += 1
 
-    return stat, abort, chunk_n, dp_any, dp_sub, dp_sub_events, tot_chunks, tot_bytes
+    return (stat, abort, chunk_n, end0000, dp_any, dp_sub, dp_sub_events,
+            tot_chunks, tot_bytes)
 
 
 # --------------------------------------------------------------------------- #
@@ -219,7 +222,7 @@ def _top(counter, k=5):
     return ";".join("%d:%d" % (v, n) for v, n in counter.most_common(k)) or "-"
 
 
-def build_rows(stat, abort, chunk_n, dp_any, dp_sub, dp_sub_events):
+def build_rows(stat, abort, chunk_n, end0000, dp_any, dp_sub, dp_sub_events):
     rows = []  # (chunk_type, sort_start, id, type, len, n, extra)
 
     # per chunk type: best start offset (most exact, then most ex3, then lowest)
@@ -267,18 +270,17 @@ def build_rows(stat, abort, chunk_n, dp_any, dp_sub, dp_sub_events):
     for tm in sorted(chunk_n):
         b = best.get(tm)
         st = stat.get((tm, b), None) if b is not None else None
-        if st is None or st["ex"] == 0:
-            rows.append(("0x%04x" % tm, "-", "-", "-", "-", "%d" % chunk_n[tm],
-                         "kind=no-exact-walk chunks=%d dp_any=%d dp_sub=%d"
-                         % (chunk_n[tm], dp_any[tm], dp_sub[tm])))
-            continue
-        med_tail = statistics.median(st["tail"]) if st["tail"] else 0
-        med_real = statistics.median(st["real"]) if st["real"] else 0
-        verdict = "not-a-tlv-list" if dp_sub[tm] == 0 else "mixed"
-        rows.append(("0x%04x" % tm, "%d" % b, "-", "-", "-", "%d" % chunk_n[tm],
-                     ("kind=type-summary chunks=%d exact=%d ex2=%d ex3=%d tailmed=%g "
-                      "realmed=%g dp_any=%d dp_sub=%d dp_subevents=%d verdict=%s")
-                     % (chunk_n[tm], st["ex"], st["ex2"], st["ex3"],
+        if st is not None and st["ex"] == 0:
+            st = None
+        med_tail = statistics.median(st["tail"]) if st and st["tail"] else 0
+        med_real = statistics.median(st["real"]) if st and st["real"] else 0
+        verdict = ("not-a-tlv-list" if dp_sub[tm] == 0 else "mixed")
+        rows.append(("0x%04x" % tm, "%d" % b if st else "-", "-", "-", "-",
+                     "%d" % chunk_n[tm],
+                     ("kind=type-summary chunks=%d end0000=%d exact=%d ex2=%d ex3=%d "
+                      "tailmed=%g realmed=%g dp_any=%d dp_sub=%d dp_subevents=%d verdict=%s")
+                     % (chunk_n[tm], end0000[tm], st["ex"] if st else 0,
+                        st["ex2"] if st else 0, st["ex3"] if st else 0,
                         med_tail, med_real, dp_any[tm], dp_sub[tm],
                         dp_sub_events[tm], verdict)))
     return rows
@@ -349,9 +351,9 @@ def main():
     if not docs:
         print("no documents parsed", file=sys.stderr)
         return 1
-    stat, abort, chunk_n, dp_any, dp_sub, dp_sub_events, tot_chunks, tot_bytes = scan(
-        docs, a.max_start)
-    rows = build_rows(stat, abort, chunk_n, dp_any, dp_sub, dp_sub_events)
+    (stat, abort, chunk_n, end0000, dp_any, dp_sub, dp_sub_events,
+     tot_chunks, tot_bytes) = scan(docs, a.max_start)
+    rows = build_rows(stat, abort, chunk_n, end0000, dp_any, dp_sub, dp_sub_events)
     write_tsv(rows, a.out)
     if not a.quiet:
         print_report(stat, abort, chunk_n, dp_any, dp_sub, dp_sub_events,

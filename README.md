@@ -45,20 +45,21 @@ python tools/pubread.py document.pub          # structural summary
 python tools/pubread.py --corpus p95/x        # validate a whole corpus
 ```
 
-Current validation status over 484 shipped documents (Publisher 95 CD 128,
-Publisher 97 CD 248, Publisher 97 disk set 106, Publisher 98 CD 2):
+Current validation status over 493 shipped documents (Publisher 95 CD 130,
+Publisher 97 CD 250, Publisher 97 disk set 108, Publisher 98 CD 5 — the three
+`.JSP` files on the 98 CD are publications, not scripts):
 
 | Check | Result |
 |---|---|
-| CFB parses | 484/484 |
-| `Contents` declared length == actual | 484/484 |
-| format version == 300 | 484/484 |
-| document chunk found | 484/484 |
+| CFB parses | 493/493 |
+| `Contents` declared length == actual | 493/493 |
+| format version == 300 | 493/493 |
+| document chunk found | 493/493 |
 | PAGE size == base + 2·count | 712/712 (P95), 2016/2016 (P97), 12/12 (P98) |
-| DOCUMENT size rule with version delta 0/30/72 | 484/484 |
+| DOCUMENT size rule with version delta 0/30/72 | 493/493 |
 | directory parents resolve, ids unique, extents cover stream | 484/484 |
 | IMAGE_DATA length prefix + WMF signature | 527/527 |
-| full structural validator | **0 violations / 484 files** |
+| full structural validator | **0 violations / 493 files** |
 
 ## Method
 

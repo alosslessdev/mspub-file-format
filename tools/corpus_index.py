@@ -56,6 +56,8 @@ def main():
     index = []
     for corpus in a.corpora:
         files = sorted(glob.glob(os.path.join(corpus, "**", "*.PUB"), recursive=True))
+        files += sorted(f for f in glob.glob(os.path.join(corpus, "**", "*.JSP"), recursive=True)
+                        if open(f, "rb").read(8) == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
         print("%s: %d files" % (corpus, len(files)))
         for f in files:
             index.append(describe(f))

@@ -152,6 +152,8 @@ def main():
     failures = []
     for corpus in corpora:
         files = sorted(glob.glob(os.path.join(corpus, "**", "*.PUB"), recursive=True))
+        files += sorted(f for f in glob.glob(os.path.join(corpus, "**", "*.JSP"), recursive=True)
+                        if open(f, "rb").read(8) == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
         stats = collections.Counter()
         for f in files:
             check_file(f, stats, failures)

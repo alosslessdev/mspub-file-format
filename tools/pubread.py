@@ -208,6 +208,8 @@ def main():
 
     if a.corpus:
         files = sorted(glob.glob(os.path.join(a.corpus, "**", "*.PUB"), recursive=True))
+        files += [f for f in glob.glob(os.path.join(a.corpus, "**", "*.JSP"), recursive=True)
+                  if open(f, "rb").read(8) == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"]
         stats = collections.Counter()
         for f in files:
             try:
