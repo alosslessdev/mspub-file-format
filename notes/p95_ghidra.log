@@ -1,0 +1,256 @@
+INFO  Using log config file: jar:file:/C:/Users/Francisco%20Herrera/Downloads/publisher-re/toolchain/ghidra_12.2_PUBLIC/Ghidra/Framework/Generic/lib/Generic.jar!/generic.log4j.xml (LoggingInitialization)  
+INFO  Using log file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\application.log (LoggingInitialization)  
+INFO  Loading user preferences: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\preferences (Preferences)  
+INFO  Searching for classes... (ClassSearcher)  
+INFO  Class search complete (1599 ms) (ClassSearcher)  
+INFO  Initializing SSL Context (DefaultSSLContextInitializer)  
+INFO  Initializing Random Number Generator... (SecureRandomFactory)  
+INFO  Random Number Generator initialization complete: SHA1PRNG (SecureRandomFactory)  
+INFO  Loaded 51 trusted CA certificates from the OS trust store. (DefaultTrustManagerFactory)  
+INFO  Loaded 118 trusted CA certificates from the Java default trust store. (DefaultTrustManagerFactory)  
+INFO  Headless startup complete (3971 ms) (AnalyzeHeadless)  
+INFO  Class searcher loaded 60 extension points (19 false positives) (ClassSearcher)  
+INFO  HEADLESS Script Paths:
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\Decompiler\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\BSim\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\WildcardAssembler\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Debug\Debugger\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\FileFormats\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Processors\8051\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\FunctionID\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\GnuDemangler\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\PyGhidra\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Processors\DATA\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\Base\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\tools\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\VersionTracking\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\BytePatterns\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\MicrosoftCodeAnalyzer\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Processors\PIC\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Debug\Debugger-rmi-trace\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Processors\JVM\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\SystemEmulation\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Processors\Atmel\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\DecompilerDependent\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\Swift\ghidra_scripts
+    C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\PDB\ghidra_scripts (HeadlessAnalyzer)  
+INFO  HEADLESS: execution starts (HeadlessAnalyzer)  
+INFO  Creating temporary project: C:\Users\Francisco Herrera\Downloads\publisher-re\ghproj\pub95 (HeadlessAnalyzer)  
+INFO  Creating project: C:\Users\Francisco Herrera\Downloads\publisher-re\ghproj\pub95 (DefaultProject)  
+INFO  REPORT: Processing input files:  (HeadlessAnalyzer)  
+INFO       project: C:\Users\Francisco Herrera\Downloads\publisher-re\ghproj\pub95 (HeadlessAnalyzer)  
+INFO  IMPORTING: file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/MSPUB.EXE (HeadlessAnalyzer)  
+INFO  Using Loader: Portable Executable (PE) (ProgramLoader)  
+INFO  Using Language/Compiler: x86:LE:32:default:windows (ProgramLoader)  
+INFO  Using Library Search Path: [., C:\WINDOWS\SysWOW64, C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\jdk-25.0.5+8\bin, C:\WINDOWS\Sun\Java\bin, C:\WINDOWS\system32, C:\WINDOWS, C:\WINDOWS\System32\Wbem, C:\WINDOWS\System32\WindowsPowerShell\v1.0\, C:\WINDOWS\System32\OpenSSH\, C:\Program Files\dotnet\, C:\Program Files\nodejs\, C:\ProgramData\chocolatey\bin, C:\ProgramData\chocolatey\lib\mpvio.install\tools, C:\Users\Francisco Herrera\AppData\Local\Python\pythoncore-3.14-64\Scripts, C:\Program Files\GitHub CLI\, C:\Users\Francisco Herrera\.cargo\bin, C:\Users\Francisco Herrera\.local\bin, C:\Users\Francisco Herrera\AppData\Local\Microsoft\WindowsApps, C:\Users\Francisco Herrera\AppData\Local\Programs\Microsoft VS Code\bin, C:\Users\Francisco Herrera\AppData\Local\Python\bin, C:\Users\Francisco Herrera\AppData\Local\Programs\Git\cmd, C:\Users\Francisco Herrera\AppData\Roaming\npm, C:\Users\Francisco Herrera\AppData\Local\Programs\cursor\resources\app\bin, C:\Users\Francisco Herrera\AppData\Local\omp, C:\Users\Francisco Herrera\AppData\Local\Programs\Microsoft VS Code\bin\copilot-shim, C:\Users\Francisco Herrera\AppData\Local\Programs\Git\bin, C:\Users\Francisco Herrera\AppData\Local\Programs\Git\usr\bin] (ProgramLoader)  
+WARN  Invalid or missing function at 100754dc (ExportDataDirectory)  
+INFO  TLS callbacks at 10003764 (TLSDirectory)  
+INFO  TLS callbacks at 100057cc (TLSDirectory)  
+INFO  TLS callbacks at 10006fe4 (TLSDirectory)  
+WARN  Invalid or missing function at 1008f108 (ExportDataDirectory)  
+INFO  TLS callbacks at 100295f8 (TLSDirectory)  
+WARN  Invalid or missing function at 105f0c6c (ExportDataDirectory)  
+WARN  Invalid or missing function at 100dcd7c (ExportDataDirectory)  
+INFO  TLS callbacks at 10002504 (TLSDirectory)  
+WARN  Invalid or missing function at 10065f64 (ExportDataDirectory)  
+INFO  Additional info:
+Loading file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/MSPUB.EXE?MD5=9d2bb0d8c7660acea80452da0659e957...
+------------------------------------------------
+
+Searching 26 paths for library ADVAPI32.DLL...
+Loading file:///C:/Windows/SysWOW64/advapi32.dll?MD5=6f319acb447453b1365b3c508cf6b344...
+Using existing exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\advapi32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library COMCTL32.DLL...
+Loading file:///C:/Windows/SysWOW64/comctl32.dll?MD5=a19d57953ec5f48772f24bad3b51dcac...
+Created exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\comctl32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library COMDLG32.DLL...
+Loading file:///C:/Windows/SysWOW64/comdlg32.dll?MD5=f6156899a3e496c9cadc8f803c51776a...
+Created exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\comdlg32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library GDI32.DLL...
+Loading file:///C:/Windows/SysWOW64/gdi32.dll?MD5=37002dbb23f87dae9ebd7dd7b5051995...
+Using existing exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\gdi32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library KERNEL32.DLL...
+Loading file:///C:/Windows/SysWOW64/kernel32.dll?MD5=770414a520903821a02bbcad3ca69fcc...
+Using existing exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\kernel32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library MSVCRT20.DLL...
+Loading file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/MSVCRT20.DLL?MD5=e898c6e99af346cbba5f202a6311f690...
+Created exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\msvcrt20.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library OLE32.DLL...
+Loading file:///C:/Windows/SysWOW64/ole32.dll?MD5=d1ff0e61ad5f77f5661664728a6b2eaf...
+[ole32.dll]: failed to create WEVTResource at 10139740: Failed to resolve data length for WEVTResource
+Using existing exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\ole32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library OLEAUT32.DLL...
+Loading file:///C:/Windows/SysWOW64/oleaut32.dll?MD5=5e87103ae474f375ce2f3dfbf5406104...
+Using existing exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\oleaut32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library PUBDLG.DLL...
+Loading file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/PUBDLG.DLL?MD5=cf4742cc1e1c66b2ea4211ac440c7c5d...
+Created exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\pubdlg.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library PUBOLE32.DLL...
+Loading file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/PUBOLE32.DLL?MD5=fc2f2a18373a8351fc176d95fd53b26e...
+Created exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\pubole32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library SHELL32.DLL...
+Loading file:///C:/Windows/SysWOW64/shell32.dll?MD5=61ed45c783402049778830620b45a8ed...
+Using existing exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\shell32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library USER32.DLL...
+Loading file:///C:/Windows/SysWOW64/user32.dll?MD5=a87613d5a9420564cc848130252fed2b...
+[user32.dll]: failed to create WEVTResource at 100fba70: Failed to resolve data length for WEVTResource
+Using existing exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\user32.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 26 paths for library WINSPOOL.DRV...
+Loading file:///C:/Windows/SysWOW64/winspool.drv?MD5=0fc8e0f15450b42ae311f73ccdb6686c...
+[winspool.drv]: failed to create WEVTResource at 1006e4b8: Failed to resolve data length for WEVTResource
+Created exports file: C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\winspool.exports
+Library not saved to project.
+------------------------------------------------
+
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\kernel32.exports
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\user32.exports
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\gdi32.exports
+Applying cached symbols from COMDLG32.DLL
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\advapi32.exports
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\shell32.exports
+Applying cached symbols from PUBOLE32.DLL
+Applying cached symbols from MSVCRT20.DLL
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\ole32.exports
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\oleaut32.exports
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\winspool.exports
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\comctl32.exports
+Applying C:\Users\Francisco Herrera\AppData\Roaming\ghidra\ghidra_12.2_PUBLIC\symbols\win32\pubdlg.exports
+Linking the External Programs of 'MSPUB.EXE' to imported libraries...
+  [KERNEL32.DLL] -> not found in project
+  [USER32.DLL] -> not found in project
+  [GDI32.DLL] -> not found in project
+  [COMDLG32.DLL] -> not found in project
+  [ADVAPI32.DLL] -> not found in project
+  [SHELL32.DLL] -> not found in project
+  [PUBOLE32.DLL] -> not found in project
+  [MSVCRT20.DLL] -> not found in project
+  [OLE32.DLL] -> not found in project
+  [OLEAUT32.DLL] -> not found in project
+  [WINSPOOL.DRV] -> not found in project
+  [COMCTL32.DLL] -> not found in project
+  [PUBDLG.DLL] -> not found in project
+------------------------------------------------
+
+ (ProgramLoader)  
+INFO  IMPORTING: Loaded 0 additional files (HeadlessAnalyzer)  
+INFO  ANALYZING all memory and code: file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/MSPUB.EXE (HeadlessAnalyzer)  
+ERROR MinGW pseudo-relocation list not found (MingwRelocationAnalyzer)  
+WARN  Ignoring leading '_' chars on no-return name '___raise_securityfailure' specified in file: C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\Base\data\PEFunctionsThatDoNotReturn (NoReturnFunctionAnalyzer)  
+WARN  Ignoring leading '_' chars on no-return name '___report_rangecheckfailure' specified in file: C:\Users\Francisco Herrera\Downloads\publisher-re\toolchain\ghidra_12.2_PUBLIC\Ghidra\Features\Base\data\PEFunctionsThatDoNotReturn (NoReturnFunctionAnalyzer)  
+INFO  Unable to find DWARF information, skipping DWARF analysis (DWARFAnalyzer)  
+INFO  Skipping PDB processing: missing PDB information in program metadata (PdbUniversalAnalyzer)  
+INFO  hit non-returning function, restarting decompiler switch analyzer later (DecompilerSwitchAnalyzer)  
+WARN  Decompiling 00572fcb: Unable to read bytes at ram:8b8b0100 (DecompileCallback)  
+INFO  Packed database cache: C:\Users\Francisco Herrera\AppData\Local\ghidra\packed-db-cache (PackedDatabaseCache)  
+INFO  Applied data type archive: windows_vs12_32 (ApplyDataArchiveAnalyzer)  
+INFO  Applied data type archive: windows_vs12_32 (ApplyDataArchiveAnalyzer)  
+INFO  No functions detected that make variadic function calls with format strings containing format specifiers (FormatStringAnalyzer)  
+INFO  -----------------------------------------------------
+    ASCII Strings                              1.243 secs
+    Apply Data Archives                        2.225 secs
+    Call Convention ID                         0.004 secs
+    Call-Fixup Installer                       0.197 secs
+    Create Address Tables                      0.931 secs
+    Create Address Tables - One Time           4.733 secs
+    Create Function                            1.563 secs
+    DWARF                                      0.004 secs
+    Data Reference                            10.792 secs
+    Decompiler Switch Analysis                45.018 secs
+    Decompiler Switch Analysis - One Time      8.588 secs
+    Demangler GNU                              0.975 secs
+    Demangler Microsoft                        0.210 secs
+    Disassemble                                2.270 secs
+    Disassemble Entry Points                   3.590 secs
+    Embedded Media                             0.021 secs
+    External Entry References                  0.000 secs
+    Function ID                                4.607 secs
+    Function Start Pre Search                  0.062 secs
+    Function Start Search                      0.402 secs
+    Function Start Search After Code           0.182 secs
+    Function Start Search After Data           0.171 secs
+    Function Start Search delayed - One Time   0.090 secs
+    MinGW Relocations                          0.021 secs
+    Non-Returning Functions - Discovered       1.533 secs
+    Non-Returning Functions - Known            0.011 secs
+    PDB Universal                              0.002 secs
+    Reference                                  8.158 secs
+    Scalar Operand References                  4.969 secs
+    Shared Return Calls                        0.920 secs
+    Source Language Support                    0.003 secs
+    Stack                                     20.617 secs
+    Subroutine References                      2.660 secs
+    Subroutine References - One Time           0.101 secs
+    Variadic Function Signature Override       0.891 secs
+    WindowsResourceReference                  45.347 secs
+    X86 Function Callee Purge                  1.107 secs
+    x86 Constant Reference Analyzer           11.810 secs
+-----------------------------------------------------
+     Total Time   186 secs
+-----------------------------------------------------
+ (AutoAnalysisManager)  
+INFO  REPORT: Analysis succeeded for file: file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/MSPUB.EXE (HeadlessAnalyzer)  
+INFO  REPORT: Execute script: DumpDecomp.java 'notes\p95\decomp'  (HeadlessAnalyzer)  
+INFO  SCRIPT: C:\Users\Francisco Herrera\Downloads\publisher-re\tools\ghidra_scripts\DumpDecomp.java (HeadlessAnalyzer)  
+INFO  DumpDecomp.java> decompiled 200 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 400 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 600 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 800 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 1000 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 1200 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 1400 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 1600 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 1800 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 2000 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 2200 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 2400 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 2600 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 2800 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 3000 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 3200 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 3400 (GhidraScript)  
+INFO  DumpDecomp.java> decompiled 3600 (GhidraScript)  
+WARN  Decompiling 00572fcb: Unable to read bytes at ram:8b8b0100 (DecompileCallback)  
+INFO  DumpDecomp.java> decompiled 3800 (GhidraScript)  
+INFO  DumpDecomp.java> DONE functions=3825 decompiled=3817 out=C:\Users\Francisco Herrera\Downloads\publisher-re\notes\p95\decomp (GhidraScript)  
+INFO  ANALYZING changes made by post scripts: file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/MSPUB.EXE (HeadlessAnalyzer)  
+INFO  REPORT: Post-analysis succeeded for file: file:///C:/Users/Francisco Herrera/Downloads/publisher-re/p95/x/MSPUB.EXE (HeadlessAnalyzer)  
+INFO  /MSPUB.EXE: file created (FranciscoHerrera) (LocalFileSystem)  
+INFO  REPORT: Save succeeded for: /MSPUB.EXE (pub95:/MSPUB.EXE) (HeadlessAnalyzer)  
+INFO  REPORT: Import succeeded (HeadlessAnalyzer)  
+The filename, directory name, or volume label syntax is incorrect.

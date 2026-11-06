@@ -1,0 +1,20 @@
+# corpora and installers are never committed
+p95/
+p97/
+p97deluxe/
+p98/
+toolchain/
+ghproj/
+*.iso
+*.CAB
+*.PUB
+*.EXE
+*.DLL
+*.M14
+
+# derived heavy artifacts and vendor code extracts
+notes/*/decomp*/
+notes/*/carved/
+notes/*/*.log
+__pycache__/
+*.pyc
