@@ -50,7 +50,7 @@ Root-level children of `Root Entry`, present in every file unless noted:
 | `\x01CompObj` | stream | OLE class descriptor, §1.4 |
 | `\x03Internal` | stream | 12 or 16 bytes, §1.5 |
 | `Objects` | storage | container for embedded OLE objects, §1.6 |
-| `\x05SummaryInformation` | stream | standard property set; present in **123/128** files (absent in 5, including `p95/x/MSPUB.PUB`) — see chapter 16 |
+| `\x05SummaryInformation` | stream | standard property set; present in **127/128** files, absent only in `p95/x/MSPUB.PUB`; 4 of the present ones are zero-length (`*_CD.PUB`) — see chapter 16 |
 
 [OBSERVED] No Publisher 95 file contains a `Quill` storage (the Publisher 97/98 text engine) or
 an `Escher` storage (the Publisher 98 drawing layer). Those storages first appear in the later

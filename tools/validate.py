@@ -15,6 +15,8 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import olefile
+
 import pubcore
 import pubread
 
@@ -31,7 +33,7 @@ CHECKS = [
     "chunk_extents_cover_stream", "single_document_chunk", "document_size_rule",
     "page_size_equation", "page_children_exist", "page_child_count_pair",
     "shape_bbox_ordered", "shape_bbox_magnitude", "image_data_length_prefix", "image_data_wmf",
-    "record_length_byte", "record_min_size", "record_0x22_is_18", "quill_list_terminates",
+    "record_length_byte", "record_min_size", "record_0x22_is_18", "quill_list_terminates", "object_link_resolves",
 ]
 
 
@@ -145,6 +147,25 @@ def check_file(path: str, stats: collections.Counter, failures: list):
         elif c.type_marker == 0x22:
             if c.size != 18:
                 fail("record_length_byte", "record_min_size", "record_0x22_is_18", "id=%#06x size=%d" % (c.id, c.size))
+    # Embedded-object linkage: every 0x0022 ordinal must name an Objects/Object N storage.
+    try:
+        ole = olefile.OleFileIO(path)
+        nums = set()
+        for entry in ole.listdir():
+            if len(entry) >= 2 and entry[0] == "Objects" and entry[1].startswith("Object "):
+                try:
+                    nums.add(int(entry[1][7:]))
+                except ValueError:
+                    pass
+        for c in doc.of_type(0x22):
+            if len(c.data) >= 0x0C:
+                num = struct.unpack_from("<H", c.data, 0x0A)[0]
+                if num not in nums:
+                    fail("object_link_resolves", "id=%#06x ordinal=%d" % (c.id, num))
+                    break
+    except Exception as e:
+        fail("object_link_resolves", "ole access: %s" % e)
+
     try:
         blob = pubcore.read_stream(path, "Quill/QuillSub/CONTENTS")
     except Exception:
@@ -160,7 +181,7 @@ def check_file(path: str, stats: collections.Counter, failures: list):
             seen.add(off)
             off = struct.unpack_from("<I", blob, off + 4)[0]
         if not ok:
-            fail("quill_list_terminates", "walk failed at %#x" % off)
+            fail("quill_list_terminates", "object_link_resolves", "walk failed at %#x" % off)
     stats["files"] += 1
 
 
