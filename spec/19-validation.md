@@ -59,8 +59,15 @@ undocumented variant.
 | 17 | IMAGE_DATA payload starts with a WMF signature | 08 | 527/527 |
 | 18 | `0x0022` record is exactly 18 bytes | 12 | 2 134/2 134 |
 | 19 | Quill chunk list terminates at `0xFFFFFFFF` | 13 | 5/5 |
+| 20 | `0x0022` ordinal resolves to an `Objects/Object N` storage | 15 | 2 134/2 134 |
+| 21 | shape `B` byte matches the per-marker constant | 06, 12 | 493/493 documents |
+| 22 | shape record `size ≥` per-marker fixed base | 06, 12 | 493/493 documents |
+| 23 | GROUP size == base + `2·count`, duplicated counts equal | 07 | 2 935/2 935 |
+| 24 | GROUP bbox ordered | 07 | 2 935/2 935 |
 
-Total: **0 violations over 493 documents.**
+Total: **0 violations over 493 documents.** 2 162 embedded objects and 2 134 object
+references were cross-checked against the storage tree, and 2 935 groups against their child
+lists.
 
 Notes on invariants that had to be weakened after measurement, and why:
 

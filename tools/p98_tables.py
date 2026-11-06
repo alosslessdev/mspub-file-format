@@ -33,6 +33,10 @@ SHAPE_TYPES = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x16}
 # libmspub's producer-side numbering (MSPUBContentChunkType) for the 2k model.
 TABLE_MARKER = 0x10
 CELLS_MARKER = 0x63
+# Publisher 2000+ block ids (libmspub MSPUBBlockID) used by its table reader.
+BLOCK2K = {0x66: "TABLE_NUM_ROWS", 0x67: "TABLE_NUM_COLS",
+           0x68: "TABLE_WIDTH", 0x69: "TABLE_HEIGHT",
+           0x6B: "TABLE_CELLS_SEQNUM", 0x6D: "TABLE_ROWCOL_ARRAY"}
 
 
 def marker_bbox(chunk):
@@ -68,40 +72,48 @@ def load_corpora(corpora):
 # --------------------------------------------------------------------------- census
 
 def cmd_census(corpora):
+    """Count every chunk type marker per corpus; flag the 2000-era table ids."""
     total = 0
+    percorp_hist = collections.defaultdict(collections.Counter)
+    percorp_docs = collections.Counter()
     hist = collections.Counter()
     files_with = collections.Counter()
     sizes = collections.defaultdict(collections.Counter)
     idhits = collections.Counter()
     for corp, f, doc in load_corpora(corpora):
         total += 1
-        seen = collections.Counter(c.type_marker for c in doc.chunks)
-        hist.update(seen)
-        for m in seen:
-            files_with[m] += 1
-            if m in (TABLE_MARKER, CELLS_MARKER):
-                print("HIT type_marker %#04x in %s" % (m, f))
-            for k in (TABLE_MARKER, CELLS_MARKER):
-                if m == k:
-                    pass
+        percorp_docs[corp] += 1
         for c in doc.chunks:
+            hist[c.type_marker] += 1
+            percorp_hist[corp][c.type_marker] += 1
             sizes[c.type_marker][c.size] += 1
-            if c.id in (TABLE_MARKER, CELLS_MARKER):
-                idhits[("id", c.id)] += 1
-            if c.parent in (TABLE_MARKER, CELLS_MARKER):
+            if c.id in (TABLE_MARKER, CELLS_MARKER) or c.id in BLOCK2K:
+                idhits[("chunk_id", c.id)] += 1
+            if c.parent in (TABLE_MARKER, CELLS_MARKER) or c.parent in BLOCK2K:
                 idhits[("parent", c.parent)] += 1
+        for m in {c.type_marker for c in doc.chunks}:
+            files_with[m] += 1
     print("documents parsed: %d" % total)
-    print("TABLE marker 0x%04x: %d chunks in %d documents"
-          % (TABLE_MARKER, hist[TABLE_MARKER], files_with[TABLE_MARKER]))
-    print("CELLS marker 0x%04x: %d chunks in %d documents"
-          % (CELLS_MARKER, hist[CELLS_MARKER], files_with[CELLS_MARKER]))
-    print("directory-id/parent collisions with 0x10|0x63: %s" % (dict(idhits) or "none"))
-    print("\nmarker histogram (marker  chunks  docs  modal payload size):")
+    for corp in corpora:
+        print("  %-14s %4d documents, %d chunks"
+              % (corp, percorp_docs[corp], sum(percorp_hist[corp].values())))
+    print()
+    print("marker 0x%04x (TABLE, libmspub 2k): %d chunks in %d of %d documents"
+          % (TABLE_MARKER, hist[TABLE_MARKER], files_with[TABLE_MARKER], total))
+    print("marker 0x%04x (CELLS, libmspub 2k): %d chunks in %d of %d documents"
+          % (CELLS_MARKER, hist[CELLS_MARKER], files_with[CELLS_MARKER], total))
+    for m in sorted(BLOCK2K):
+        print("marker 0x%04x (%-18s): %d chunks in %d documents"
+              % (m, BLOCK2K[m], hist[m], files_with[m]))
+    print("id/parent collisions with table ids: %s" % (dict(idhits) or "none"))
+    print()
+    print("marker histogram (marker  chunks  docs  modal payload size):")
     for m in sorted(hist):
         mode, n = sizes[m].most_common(1)[0]
         print("  0x%04x  %6d  %5d  %6d  (%d/%d chunks)"
               % (m, hist[m], files_with[m], mode, n, hist[m]))
-    print("\nsize spread per marker (only markers with >1 size):")
+    print()
+    print("size spread per marker (only markers with >1 size):")
     for m in sorted(sizes):
         if len(sizes[m]) > 1:
             common = sizes[m].most_common(6)

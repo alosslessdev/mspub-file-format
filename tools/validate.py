@@ -34,6 +34,7 @@ CHECKS = [
     "page_size_equation", "page_children_exist", "page_child_count_pair",
     "shape_bbox_ordered", "shape_bbox_magnitude", "image_data_length_prefix", "image_data_wmf",
     "record_length_byte", "record_min_size", "record_0x22_is_18", "quill_list_terminates", "object_link_resolves",
+    "group_size_equation", "group_count_pair", "group_bbox_ordered",
 ]
 
 
@@ -147,6 +148,25 @@ def check_file(path: str, stats: collections.Counter, failures: list):
         elif c.type_marker == 0x22:
             if c.size != 18:
                 fail("record_length_byte", "record_min_size", "record_0x22_is_18", "id=%#06x size=%d" % (c.id, c.size))
+    # GROUP 0x000F: counted child list; +8 shift in Publisher 98 (descriptor 0x20).
+    for c in doc.of_type(0x0F):
+        if len(c.data) < 0x24:
+            fail("group_size_equation", "id=%#06x short" % c.id)
+            continue
+        p98 = c.data[2] == 0x20
+        cnt_off, arr_off = (0x20, 0x2A) if p98 else (0x18, 0x22)
+        n = struct.unpack_from("<H", c.data, cnt_off)[0]
+        n2 = struct.unpack_from("<H", c.data, cnt_off + 2)[0]
+        if c.size != arr_off + 2 * n:
+            fail("group_size_equation", "id=%#06x size=%d n=%d base=%#x"
+                 % (c.id, c.size, n, arr_off))
+        if n != n2:
+            fail("group_count_pair", "id=%#06x %d != %d" % (c.id, n, n2))
+        if len(c.data) >= 0x16:
+            x0, y0, x1, y1 = struct.unpack_from("<iiii", c.data, 6)
+            if x0 > x1 or y0 > y1:
+                fail("group_bbox_ordered", "id=%#06x box=(%d,%d,%d,%d)" % (c.id, x0, y0, x1, y1))
+
     # Embedded-object linkage: every 0x0022 ordinal must name an Objects/Object N storage.
     try:
         ole = olefile.OleFileIO(path)
@@ -181,7 +201,8 @@ def check_file(path: str, stats: collections.Counter, failures: list):
             seen.add(off)
             off = struct.unpack_from("<I", blob, off + 4)[0]
         if not ok:
-            fail("quill_list_terminates", "object_link_resolves", "walk failed at %#x" % off)
+            fail("quill_list_terminates", "object_link_resolves",
+    "group_size_equation", "group_count_pair", "group_bbox_ordered", "walk failed at %#x" % off)
     stats["files"] += 1
 
 

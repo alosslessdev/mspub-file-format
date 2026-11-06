@@ -112,37 +112,116 @@ load normally. [OBSERVED]
   `+0x10`. The one P97-deluxe exception is a document whose page order changed after the field
   was written, which is consistent with "cached pointer, not recomputed on save".
 
-## 2.5 The descriptor area `0x22…0x41`
+## 2.5 The fixed block `0x22…0x23D`
 
-Every word in this area is constant across the corpus except `0x36`. The three words at
-`0x26`, `0x2E` and `0x36` are **exact mirrors of the two-byte per-chunk-type pair stored at
-chunk offset +2/+3** (see chapter 04):
+Between the 34-byte header and the text store there is a **540-byte block** that is not a chunk:
+it has no directory record, no type marker and no length field, and it always starts at the same
+absolute offset. The constant `574` at header `+0x12` is exactly its end (`0x23E`), and the
+constant `34` at `+0x1A` is exactly its start, so the pair of constants defines the block.
 
-| Header word | Chunk type | Chunk bytes +2/+3 | Match |
+Across the 130 P95 documents **537 of its 540 bytes are identical**; exactly three bytes vary
+[OBSERVED]:
+
+| byte(s) | values (files) | note |
+|---|---|---|
+| `0x36`/`0x37` | `0x7490` ×64, `0x749C` ×50, `0x7498` ×15, `0x748C` ×1 | low byte varies, high byte always `0x74` |
+| `0x40`/`0x41` | `0x7492`, `0x749E`, `0x749A`, `0x748E` (same grouping) | always **the 0x36 value + 2** |
+| `0x15A` | `0x66` ×129, `0x88` ×1 | single outlier (`CHEKLIST.JSP` variant) |
+
+There are therefore exactly **four** whole-block variants over the P95 corpus, and they differ
+only in that one 16-bit cell written twice. The block is *version-specific*: Publisher 97 has
+two variants of its own (50/58 files each) and Publisher 98 has one; only `INFLNTLB.PUB` — a
+Publisher 95-format document shipped on the Publisher 97 CD — shares a P95 variant.
+
+Complete dump (`p95/x/MSPUB.PUB`, variant `0x749C`; the only bytes that can differ are marked
+`*`):
+
+```
+       0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+022   3a 00 06 00 5e 5c 09 00 02 00 00 00 60 60 01 00
+032   0e 00 00 00*9c*74 01 00 08 00 6a 01 00 00*9e*74
+042   01 00 08 00 6a 01 00 00 3b 3b 00 00 00 00 00 00
+052   3e 3e 00 00 00 00 00 00 39 35 00 00 00 00 00 00
+062   29 29 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+072   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+082   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+092   00 00 00 00 00 00 00 00 1a 1a 19 00 04 00 18 00
+0a2   00 00 18 18 19 00 02 00 00 00 00 00 00 00 00 00
+0b2   00 00 04 04 01 00 00 00 00 00 04 04 02 00 00 00
+0c2   00 00 04 04 03 00 00 00 00 00 1a 1a 19 00 02 00
+0d2   04 00 06 00 00 00 78 6a 19 00 02 00 04 00 06 00
+0e2   08 00 44 00 46 00 48 00 4a 00 4c 00 4e 00 50 00
+0f2   52 00 54 00 56 00 58 00 5a 00 5c 00 5e 00 60 00
+102   62 00 68 00 00 00 1a 10 00 00 00 00 08 00 0a 00
+112   0e 00 10 00 12 00 0c 00 14 00 00 00 00 00 00 00
+122   00 00 00 00 04 04 02 00 08 00 00 00 04 04 02 00
+132   10 00 00 00 04 04 0a 00 0a 00 00 00 04 04 1a 00
+142   02 00 00 00 04 04 02 00 04 00 00 00 04 04 02 00
+152   02 00 00 00 08 04 03 00*66 00 00 00 04 04 03 00
+162   00 00 00 00 04 04 03 00 00 00 00 00 00 08 00 00
+172   00 00 00 00 00 08 00 00 00 00 00 00 04 04 03 00
+182   00 00 00 00 76 00 01 00 80 00 00 00 36 00 01 00
+192   40 00 00 00 04 04 43 00 32 00 00 00 16 16 04 00
+1a2   00 00 04 01 00 00 10 10 01 00 05 00 00 00 2c 2c
+1b2   a3 00 00 00 10 00 00 00 04 04 03 00 00 00 00 00
+1c2   04 04 03 00 00 00 00 00 18 18 01 00 06 00 00 00
+1d2   04 04 02 00 04 00 00 00 04 04 02 00 05 00 00 00
+1e2   08 08 02 00 04 00 06 00 00 00 04 04 03 00 00 00
+1f2   00 00 08 08 02 00 04 00 06 00 00 00 04 04 03 00
+202   00 00 00 00 04 04 04 00 00 00 00 00 24 24 01 00
+212   0e 00 00 00 c8 c8 08 00 00 00 00 00 70 70 00 00
+222   0e 00 00 00 04 04 01 00 06 00 00 00 04 04 01 00
+232   0a 00 00 00 4c 30 00 00 00 00 00 00 de f0 2e 00
+```
+
+(`*` marks the only variable bytes; `0x23E` is not part of the block — it is the text store's
+signature `0xF0DE` followed by its own 46-byte sub-header.)
+
+### 2.5.1 Structure: per-type default cells
+
+The block is a heterogeneous defaults area, not a record array, but three cells in it are
+provably the **per-type descriptor pair** stored at chunk `+2/+3` (chapter 04), each inside an
+8-byte cell of the shape `{u8 A, u8 B, u16 tag, u32 value}` [OBSERVED]:
+
+| block offset | cell | chunk type whose (`A`, `B`) it carries | chunks |
 |---|---|---|---|
-| `0x26` | 0x00 | (`0x5E`,`0x5C`) = 94, 92 | 128/128 |
-| `0x2E` | 0x01 | (`0x60`,`0x60`) = 96, 96 | 128/128 |
-| `0x36` | 0x02 | (A, `0x74`) with A ∈ {140,144,152,156} = `0x8C/0x90/0x98/0x9C` | 128/128 |
+| `0x26` | `5e 5c | 09 00 | 02 00 00 00` | `0x0000` → (0x5E, 0x5C) | 909/911 of the 102-byte form |
+| `0x2E` | `60 60 | 01 00 | 0e 00 00 00` | `0x0001` → (0x60, 0x60) | 130/130 |
+| `0x36` | `9c 74 | 01 00 | 08 00 6a 01` | `0x0002` → (0xA?, 0x74) | A tracks the file |
+| `0x40` | `9e 74 | 01 00 | 08 00 6a 01` | `0x0002` again, first word + 2 | — |
 
-This proves two things:
+The remaining `A A` cells in the block (`04 04`, `08 08`, `10 10`, `16 16`, `18 18`, `24 24`,
+`29 29`, `2c 2c`, `3b 3b`, `3e 3e`, `39 35`, `70 70`, `c8 c8`, `78 6a`) are the same kind of
+descriptor cell for record types that this corpus does not contain as chunks, plus the
+DOCUMENT's own descriptor pair `0x6A78` at `0x0D6`. Nothing in the P95 corpus indexes these
+cells by offset, and no chunk payload references the block. [INFERENCE]
 
-1. The pair at chunk +2/+3 is a **per-document, per-type constant**, recorded in the header at
+Two consequences that matter to a reader:
+
+1. The pair at chunk `+2/+3` is a **per-document, per-type constant** recorded in the header at
    save time — not a per-chunk length and not an offset.
-2. The values differ per chunk type, so they encode a type-specific property (most plausibly the
-   size of the fixed prologue of that chunk type, or a record class). The exact meaning is
-   [UNKNOWN]; chapter 04 tabulates the value for every observed type.
+2. A reader must **not** treat the block as chunk data. It is fixed for a given writer build and
+   varies only in the `0x36`/`0x40` cell, which is a pair of equal-shaped values 2 apart (most
+   plausibly "saved value / current value" of one document-wide metric). Semantics [UNKNOWN];
+   the experiment is to change one document-wide default at a time (grid, ruler origin, snap,
+   default font size) and diff the block.
 
-The remaining words (`0x22`, `0x24`, `0x28`, `0x2A`, `0x2C`, `0x30`, `0x32`, `0x34`, `0x38`,
-`0x3A`, `0x3C`, `0x3E`, `0x40`) never vary in the corpus and there is no binary evidence yet for
-their semantics. They are recorded as a fixed descriptor block. [UNKNOWN]
+## 2.5.2 Notes on the earlier reading
+
+Two errors in the previous revision of this chapter are corrected here:
+
+* `0x40` was listed as `0` in every file. It is not: it is the second copy of the `0x02`
+  descriptor cell and equals the `0x36` value **+ 2** (`0x749E` for `0x749C`, etc.).
+* The block was described as ending at `0x41`. It ends at `0x23E`; the `0x22…0x41` area is only
+  its first quarter.
 
 ## 2.6 The `+0x1E` / `+0x20` flag words
 
-`+0x20` is `0x0500` in all 128 files. `+0x1E` takes four values:
+`+0x20` is `0x0500` in all 130 files. `+0x1E` takes four values:
 
 | `+0x1E` | Files |
 |---|---|
-| `0x0500` | 8 |
+| `0x0500` | 10 |
 | `0x0100` | 87 |
 | `0x0300` | 16 |
 | `0x0000` | 17 |
@@ -172,9 +251,10 @@ offset  bytes           meaning
 0x1a    22 00 00 00     constant 34
 0x1e    00 05           flags 0x0500
 0x20    00 05           flags 0x0500
-0x22    3a 00 06 00 5e 5c 09 00 02 00 00 00 00 00 60 60
-0x32    01 00 0e 00 00 00 e9 01 01 00 08 00 6a 01 00 00
+0x22    3a 00 06 00 5e 5c 09 00 02 00 00 00 60 60 01 00
+0x32    0e 00 00 00 9c 74 01 00 08 00 6a 01 00 00 9e 74
 ```
 
-(`0x36` reads `e9 01` here because MSPUB.PUB's IMAGE chunk uses A = 0xE9 — the value tracks the
-document's image record class, not a fixed constant.)
+The cell at `0x36` reads `0x749C` here, i.e. the descriptor pair (`0x9C`, `0x74`) of this
+document's `0x0002` IMAGE chunks; the cell at `0x40` is the same pair with the first byte
+incremented by 2. Both are per-file values, not constants (§2.5.1).

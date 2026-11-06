@@ -9,11 +9,15 @@ a thumbnail. Everything else that describes the document lives either in the CFB
 
 | Stream | Files with it | Notes |
 |---|---|---|
-| `\x01CompObj` | 128/128 | OLE class descriptor, §16.2 |
-| `\x03Internal` | 128/128 | Publisher-private, §16.3 |
-| `\x05SummaryInformation` | 127/128 | absent in `p95/x/MSPUB.PUB`; §16.4 |
-| `\x05DocumentSummaryInformation` | 0/128 | never written by Publisher 95 |
-| `Quill`, `Escher` | 0/128 | Publisher 97/98 only |
+| `\x01CompObj` | 130/130 | OLE class descriptor, §16.2 |
+| `\x03Internal` | 130/130 | Publisher-private, §16.3 |
+| `\x05SummaryInformation` | 129/130 | absent in `p95/x/MSPUB.PUB`; **6 of the 129 are zero-length streams**; §16.4 |
+| `\x05DocumentSummaryInformation` | 0/130 | never written by Publisher 95 |
+| `Quill`, `Escher` | 0/130 | Publisher 97/98 only |
+
+Census counts over the 130 Publisher 95 CD documents (128 `.PUB` + 2 `.JSP`). A census that
+tests *stream content* rather than *stream presence* reports 123 for
+`\x05SummaryInformation`; the stream exists in 129 documents and 6 of those are empty.
 
 [OBSERVED]
 
@@ -87,9 +91,14 @@ which word moves.
 
 ## 16.4 `\x05SummaryInformation`
 
-Present in 127 files, absent in `p95/x/MSPUB.PUB`. Four of the 127 are **zero-length**
-(`CLASS_CD.PUB`, `JAZZY_CD.PUB`, `MODRN_CD.PUB`, `PLAIN_CD.PUB`), so 123 files carry an actual
-property set. [OBSERVED]
+Present in **129 of 130** documents; absent only in `p95/x/MSPUB.PUB`. Six of the 129 are
+**zero-length streams** — `CLASS_CD.PUB`, `JAZZY_CD.PUB`, `MODRN_CD.PUB`, `PLAIN_CD.PUB`
+(the four `*_CD` templates), `CHEKLIST.JSP` and `INFOSHET.JSP` — so 123 documents carry an
+actual property set. [OBSERVED]
+
+A reader MUST tolerate an empty `\x05SummaryInformation`: the stream is a directory entry with
+zero length and dereferencing its header would read past the end. Treat length 0 as "no
+metadata" and skip the property-set parse.
 
 ### Stream header
 
