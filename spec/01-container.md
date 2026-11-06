@@ -133,13 +133,13 @@ Publisher 95, save, and see which word changes.
 
 ## 1.6 `Objects` storage and embedded objects
 
-`Objects` is present in all 128 files. It holds zero or more **`Object N`** substorages
-(N = 0, 1, 2 …). Each `Object N` is a *complete nested Publisher object* and repeats the root
-layout plus the OLE presentation streams:
+`Objects` is present in all 130 files. It holds zero or more **`Object N`** substorages
+(N = 0, 1, 2 …). Each `Object N` is an embedded OLE object and repeats the root layout plus the
+OLE presentation streams:
 
 | Stream | Meaning |
 |---|---|
-| `Contents` | a complete 0xACE8 document (parseable with the same reader, e.g. 119 bytes in AUDIOLBL `Object 1`) |
+| `Contents` | **the embedded application's own document, not a Publisher document** — see below |
 | `\x03Internal` | same format as §1.5 |
 | `\x01CompObj` | same 94-byte-style descriptor (102 bytes here) |
 | `\x01Ole` | 20 bytes — OLE object header |
@@ -149,6 +149,20 @@ layout plus the OLE presentation streams:
 [OBSERVED] 500 `\x01Ole` streams, 500 `\x02OlePres000`, 121 `\x02OlePres001`, 215
 `\x01Ole10Native` across the corpus, all inside `Object N` substorages. The nesting is one level
 deep in every file (no `Objects` inside an `Object N`).
+
+**`Object N/Contents` is not a Publisher mini-document.** All **285** such streams in the P95
+corpus were checked and **none** starts with the `0xACE8` magic:
+
+| leading bytes | count | interpretation |
+|---|---|---|
+| `57 6f 72 64 41 72 74 20` (`"WordArt "`) | 284 | Microsoft WordArt 2.0 document (the object's own native format) |
+| `78 56 34 12 4c 45` (`"xV4\x12LE"`) | 1 | packaged binary (`CLASS_CD.PUB`, `Object 93`, 148 832 bytes) — an `\x01Ole10Native` payload |
+
+So the name `Contents` here is a *convention* that the embedded server also uses; a Publisher
+reader must treat the subtree as opaque and hand it to the OLE server. An earlier revision of
+this chapter claimed these were parseable 0xACE8 documents; that was an untested assumption and
+is refuted by the measurement above. `\x03Internal` and `\x01CompObj` inside `Object N` follow
+the same conventions as the root streams.
 
 The link from a drawing shape to its `Object N` substorage is established by the shape chunk,
 not by the container — see the shape chapters.
@@ -168,7 +182,7 @@ multiple of 512 and satisfies `size = 512 * (1 + nb_sectors)`. [OBSERVED]
 | Directory entry count | 4–6 at root, grows with embedded objects | none |
 | Header CLSID | zero | none |
 | Stream names | control-character prefixes `\x01`…`\x05` | standard OLE convention |
-| Nested documents | `Objects/Object N/Contents` is a full mini-document | Publisher-specific *use*, not a container deviation |
+| Nested documents | `Objects/Object N/Contents` holds the embedded server's document (WordArt / packaged file), never a Publisher `0xACE8` stream | Publisher-specific *use*, not a container deviation |
 
 [OBSERVED] Conclusion: the Publisher 95 container is plain [MS-CFB] v3. All Publisher-specific
 structure is inside the `Contents` stream (chapter 02 onward) and inside the `Object N`

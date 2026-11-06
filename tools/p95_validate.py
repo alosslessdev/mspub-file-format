@@ -83,9 +83,9 @@ IMPLIED_COUNT = {
     0x001A: (26, 14),
 }
 
-TRAILER_STAMPS = {0x1540, 0x1548, 0x1640, 0x1648}
-DESCRIPTOR_SET = {0x1440, 0x1448, 0x14C0, 0x1540, 0x1548, 0x1640, 0x1648,
-                  0x1660, 0x16C0, 0x16C8, 0x16E0, 0x1740, 0x1748}
+# Directory flags word (spec/03 §3.6): 13 values, bits 6/10 set and node kind 1 always.
+FLAGS_DOMAIN = {0x1440, 0x1448, 0x14C0, 0x1540, 0x1548, 0x1640, 0x1648,
+                0x1660, 0x16C0, 0x16C8, 0x16E0, 0x1740, 0x1748}
 
 
 class Violations:
@@ -218,46 +218,44 @@ def validate_file(path: str, v: Violations):
     if not (0x22 <= tr < len(d) - 4):
         v.add(path, "dir.offset", tr)
         return stats
-    count = struct.unpack_from("<H", d, tr)[0]
-    if tr + 2 + 10 * count + 12 > len(d):
+    count, idhwm = struct.unpack_from("<HH", d, tr)
+    if tr + 14 + 10 * count > len(d):
         v.add(path, "dir.extent", "count %d overruns stream" % count)
         return stats
     recs = []
     for i in range(count):
-        X, cid, par, off = struct.unpack_from("<HHHI", d, tr + 2 + 10 * i)
-        recs.append((X, cid, par, off))
-    ids = [r[1] for r in recs]
+        cid, par, off, fl = struct.unpack_from("<HHIH", d, tr + 4 + 10 * i)
+        recs.append((cid, par, off, fl))
+    ids = [r[0] for r in recs]
     if len(set(ids)) != len(ids):
         v.add(path, "dir.duplicate_id", "count %d" % count)
     idset = set(ids)
-    for i, (X, cid, par, off) in enumerate(recs):
+    for i, (cid, par, off, fl) in enumerate(recs):
         if par != 0x00FE and par not in idset:
             v.add(path, "dir.parent_resolves", "record %d parent %d" % (i, par))
-        if not (tr + 2 + 10 * count + 12 <= off < len(d)):
+        if not (tr + 14 + 10 * count <= off < len(d)):
             v.add(path, "dir.chunk_offset_range", "record %d offset %d" % (i, off))
-    if recs[0][2] != 0x00FE:
-        v.add(path, "dir.root_is_record0", recs[0][2])
+        if fl & 0x1440 != 0x1440 or fl & 0x7000 != 0x1000:
+            v.add(path, "dir.flags_bits", "record %d flags %#06x" % (i, fl))
+        elif fl not in FLAGS_DOMAIN:
+            v.add(path, "dir.flags_domain", "record %d flags %#06x" % (i, fl))
+        if cid < 0x0100:
+            v.add(path, "dir.id_space", "record %d id %#06x" % (i, cid))
+    if recs[0][1] != 0x00FE:
+        v.add(path, "dir.root_is_record0", recs[0][1])
     for i in range(len(recs) - 1):
-        if not (recs[i][3] < recs[i + 1][3]):
+        if not (recs[i][2] < recs[i + 1][2]):
             v.add(path, "dir.offset_order", "records %d/%d" % (i, i + 1))
-    if recs[0][0] != max(ids):
-        v.add(path, "dir.record0_descriptor", "%d != max %d" % (recs[0][0], max(ids)))
-    for i, (X, _cid, _par, _off) in enumerate(recs[1:], start=1):
-        if X not in DESCRIPTOR_SET:
-            v.add(path, "dir.descriptor_set", "record %d value %#06x" % (i, X))
-    gap = tr + 2 + 10 * count
-    first_chunk = recs[0][3] if False else min(ids and [r[3] for r in recs])
-    if first_chunk != gap + 12:
-        v.add(path, "dir.trailer", "gap %d bytes, expected 12" % (first_chunk - gap))
-    else:
-        stamp = struct.unpack_from("<H", d, gap)[0]
-        if stamp not in TRAILER_STAMPS:
-            v.add(path, "dir.trailer_stamp", "%#06x" % stamp)
-        if any(d[gap + 2:gap + 12]):
-            v.add(path, "dir.trailer_zero", d[gap + 2:gap + 12].hex())
+    if idhwm != max(ids):
+        v.add(path, "dir.id_hwm", "%d != max %d" % (idhwm, max(ids)))
+    nullrec = tr + 4 + 10 * count
+    if d[nullrec:nullrec + 10] != b"\0" * 10:
+        v.add(path, "dir.null_record", d[nullrec:nullrec + 10].hex())
+    if min(r[2] for r in recs) != nullrec + 10:
+        v.add(path, "dir.first_chunk", "%d != %d" % (min(r[2] for r in recs), nullrec + 10))
 
     # ---- chunk adjacency and framing -----------------------------------
-    offs = sorted(r[3] for r in recs)
+    offs = sorted(r[2] for r in recs)
     extents = {o: (offs[i + 1] if i + 1 < len(offs) else len(d)) for i, o in enumerate(offs)}
     type_of = {}
     for c in doc.chunks:
@@ -391,26 +389,22 @@ def validate_file(path: str, v: Violations):
             if ref is None or ref.type_marker != w:
                 v.add(path, "chunk16.slot_order", "id %d -> %d want %#06x" % (c.id, r, w))
 
-    # ---- nested documents (Objects/Object N/Contents) -------------------
+    # ---- embedded objects (chapter 01 §1.6) ----------------------------
+    # `Objects/Object N/Contents` belongs to the embedded server (WordArt / packaged
+    # binary), never to Publisher: no such stream may start with the 0xACE8 magic.
     try:
         import olefile
         ole = olefile.OleFileIO(path)
         for entry in ole.listdir():
             name = "/".join(entry)
-            if name.endswith("/Contents") or name == "Contents":
-                if not name.startswith("Objects/"):
-                    continue
-                blob = ole.openstream(entry).read()
-                if len(blob) >= 0x20:
-                    if struct.unpack_from("<H", blob, 0)[0] != 0xACE8:
-                        v.add(path, "nested.magic", name)
-                    ntr = struct.unpack_from("<I", blob, 0x16)[0]
-                    if not (0x22 <= ntr < len(blob) - 4):
-                        v.add(path, "nested.directory", "%s offset %d" % (name, ntr))
-                    else:
-                        n = struct.unpack_from("<H", blob, ntr)[0]
-                        if ntr + 2 + 10 * n + 12 > len(blob):
-                            v.add(path, "nested.directory_extent", name)
+            if not (name.startswith("Objects/") and name.endswith("/Contents")):
+                continue
+            blob = ole.openstream(entry).read()
+            stats["nested_contents"] += 1
+            if len(blob) >= 2 and struct.unpack_from("<H", blob, 0)[0] in (0xACE8, 0xACE7):
+                v.add(path, "nested.is_not_publisher", name)
+            if not blob:
+                v.add(path, "nested.empty", name)
         ole.close()
     except Exception as e:
         v.add(path, "nested.inspect", "%s: %s" % (type(e).__name__, e))
@@ -430,7 +424,9 @@ def main():
         files = [a.file]
     else:
         corpus = a.corpus or os.path.join(root, "p95", "x")
-        files = sorted(glob.glob(os.path.join(corpus, "**", "*.PUB"), recursive=True))
+        files = sorted(set(
+            glob.glob(os.path.join(corpus, "**", "*.PUB"), recursive=True) +
+            glob.glob(os.path.join(corpus, "**", "*.JSP"), recursive=True)))
     if not files:
         print("no .PUB files found")
         return 2
