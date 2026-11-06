@@ -26,7 +26,7 @@ for f in files:
             if len(ex[t])<4: ex[t].append((os.path.basename(f),c.data.hex()))
             if len(c.data)>=8:
                 v=u16(c.data,6)
-                idmatch[(t, ks and ks[0].id==v)]+=1
+                idmatch[(t, bool(ks) and ks[0].id==v)]+=1
 for t in (0x31,0x32):
     print('== ',hex(t),dict(stats[t]) if False else '')
     print(' n',stats[t]['n'],'sizes',{k:v for k,v in stats[t].items() if k.startswith('size')})

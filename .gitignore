@@ -18,3 +18,5 @@ notes/*/carved/
 notes/*/*.log
 __pycache__/
 *.pyc
+ref/
+out/
