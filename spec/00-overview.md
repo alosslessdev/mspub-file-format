@@ -35,9 +35,10 @@ Publisher 2000 and later use version magic `0x2C` and are out of scope.
 17. [17-enums.md](17-enums.md) — enum domains.
 18. [18-version-differences.md](18-version-differences.md) — 95 vs 97 vs 98.
 19. [19-validation.md](19-validation.md) — parser validation results.
+20. [blocks/chunk-markers.md](blocks/chunk-markers.md) — generated marker reference table.
 
-Machine-readable tables live in [blocks/tlv-id-table.md](blocks/tlv-id-table.md)
-and [enums/](enums/).
+Machine-readable tables live in [blocks/chunk-markers.md](blocks/chunk-markers.md)
+(one row per chunk marker, generated from the corpus) and [enums/](enums/).
 
 ## Terminology
 
