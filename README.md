@@ -54,7 +54,11 @@ Publisher 97 CD 248, Publisher 97 disk set 106, Publisher 98 CD 2):
 | `Contents` declared length == actual | 484/484 |
 | format version == 300 | 484/484 |
 | document chunk found | 484/484 |
-| PAGE size == `0x24 + 2·count` | 712/712 (P95) |
+| PAGE size == base + 2·count | 712/712 (P95), 2016/2016 (P97), 12/12 (P98) |
+| DOCUMENT size rule with version delta 0/30/72 | 484/484 |
+| directory parents resolve, ids unique, extents cover stream | 484/484 |
+| IMAGE_DATA length prefix + WMF signature | 527/527 |
+| full structural validator | **0 violations / 484 files** |
 
 ## Method
 

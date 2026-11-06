@@ -127,10 +127,18 @@ the fixed part. This is exact — every size variant is explained, with no excep
 | Marker | Fixed part (base) | Count field | Duplicate | Element size | Fit |
 |---|---|---|---|---|---|
 | `0x0000` SHAPE | 102 | `u16@+0x5C` | `+0x5E` | 2 | 589/589 variants (p95+p97d) |
-| `0x0014` PAGE | 36 | `u16@+0x1A` | `+0x1C` | 2 | 961/961 (this corpus set); 712/712 on p95 |
-| `0x0002` IMAGE | 126 | `u16@+0x74` | `+0x76` | 8 | 28/28 |
-| `0x0003` | 126 | `u16@+0x74` | `+0x76` | 8 | 60/60 |
-| `0x0031` LOGO | 30 | `u16@+0x08` | `+0x0A` | 8 | 40/40 |
+| `0x0014` PAGE (95/97) | 36 | `u16@+0x1A` | `+0x1C` | 2 | 2728/2740; the 12 misses are the P98 pages below |
+| `0x0014` PAGE (98) | 40 | `u16@+0x1E` | `+0x20` | 2 | 12/12 |
+| `0x0002` IMAGE | 126 | `u16@+0x74` | `+0x76` | 8 | 1005/1005 |
+| `0x0003` | 126 | `u16@+0x74` | `+0x76` | 8 | 2616/2616 |
+| `0x0031` LOGO | 30 | `u16@+0x08` | `+0x0A` | 8 | 1794/1794 |
+
+The duplicate slot is a used/allocated pair: it is **equal to the count in every chunk of
+`0x02`, `0x03`, `0x31` and in all 12 P98 pages** (the only records where equality was tested
+chunk-by-chunk). A reader SHOULD accept either value but MUST validate the size equation against
+the first slot. For `0x02`/`0x03` this rule alone explains every observed size — no second
+optional region exists (the earlier concern about large LOGO records is void: a 446-byte LOGO has
+count 52, and 30 + 8·52 = 446).
 
 Worked example — `p97deluxe/x/PageWiz/AUDIOLBL.PUB`, SHAPE chunk id `0x0157`:
 payload `…`, `u16@+0x5C = 2`, `u16@+0x5E = 2`, array at `+0x66` = `0x011F, 0x0133`,

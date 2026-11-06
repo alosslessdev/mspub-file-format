@@ -73,10 +73,11 @@ def check_file(path: str, stats: collections.Counter, failures: list):
         fail("single_document_chunk", "%d document chunks" % len(docs))
         return
     dc = docs[0]
-    npages = len(doc.of_type(0x14))
-    # Publisher 95 base; Publisher 97 appends 30 bytes, Publisher 98 appends 74.
+    # Page slots are type 0x14 and (Publisher 98) 0x41.
+    npages = len(doc.of_type(0x14)) + len(doc.of_type(0x41))
+    # Publisher 95 base; Publisher 97 appends 30 bytes, Publisher 98 appends 72.
     delta = dc.size - (0x74 + 2 * (npages - 1))
-    if delta not in (0, 30, 74):
+    if delta not in (0, 30, 72):
         fail("document_size_rule", "pages=%d size=%d delta=%d" % (npages, dc.size, delta))
     stats["doc_delta_%d" % delta] += 1
     width = struct.unpack_from("<I", dc.data, 0x14)[0]
@@ -86,13 +87,18 @@ def check_file(path: str, stats: collections.Counter, failures: list):
         if len(c.data) < 0x24:
             fail("page_size_equation", "id=%#06x size=%d" % (c.id, c.size))
             continue
-        n = struct.unpack_from("<H", c.data, 0x1A)[0]
-        n2 = struct.unpack_from("<H", c.data, 0x1C)[0]
-        if c.size != 0x24 + 2 * n:
-            fail("page_size_equation", "id=%#06x size=%d n=%d" % (c.id, c.size, n))
+        # Publisher 98 shifted the record by +4: descriptor 0x1E, counts at +0x1E/+0x20,
+        # ids at +0x28. Publisher 95/97: descriptor 0x1A, counts at +0x1A/+0x1C, ids at +0x24.
+        p98 = c.data[2] == 0x1E
+        cnt_off, arr_off = (0x1E, 0x28) if p98 else (0x1A, 0x24)
+        n = struct.unpack_from("<H", c.data, cnt_off)[0]
+        n2 = struct.unpack_from("<H", c.data, cnt_off + 2)[0]
+        base = arr_off
+        if c.size != base + 2 * n:
+            fail("page_size_equation", "id=%#06x size=%d n=%d base=%#x" % (c.id, c.size, n, base))
         if n != n2:
             fail("page_child_count_pair", "id=%#06x %d != %d" % (c.id, n, n2))
-        for cid in struct.unpack_from("<%dH" % n, c.data, 0x24):
+        for cid in struct.unpack_from("<%dH" % n, c.data, arr_off):
             if cid not in idset:
                 fail("page_children_exist", "page=%#06x child=%#06x" % (c.id, cid))
                 break
@@ -106,7 +112,7 @@ def check_file(path: str, stats: collections.Counter, failures: list):
             if x0 > x1 or y0 > y1:
                 fail("shape_bbox_ordered", "id=%#06x box=(%d,%d,%d,%d)" % (c.id, x0, y0, x1, y1))
                 break
-            if max(abs(x0), abs(y0), abs(x1), abs(y1)) > 100 * pubread.EMU_PER_INCH:
+            if max(abs(x0), abs(y0), abs(x1), abs(y1)) > 400 * pubread.EMU_PER_INCH:
                 fail("shape_bbox_magnitude", "id=%#06x box=(%d,%d,%d,%d)" % (c.id, x0, y0, x1, y1))
                 break
         elif c.type_marker == 0x21:

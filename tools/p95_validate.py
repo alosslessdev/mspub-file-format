@@ -59,13 +59,18 @@ FIXED_RECORD = {
 #   size == base + element * u16@count_off
 BASE_COUNT = {
     0x0000: (102, 0x5C, 2),
+    0x0001: (106, 0x60, 14),
     0x0002: (126, 0x74, 8),
     0x0003: (126, 0x74, 8),
     0x000F: (0x22, 0x18, 2),
-    0x0014: (36, 0x1A, 2),
+    0x0014: (0x24, 0x1A, 2),
     0x001C: (26, 0x04, 8),
+    0x0028: (26, 0x10, 5),
+    0x002C: (34, 0x18, 6),
     0x002D: (26, 0x04, 8),
     0x0031: (30, 0x08, 8),
+    0x0034: (46, 0x24, 14),
+    0x0037: (14, 0x04, 6),
 }
 
 # Types that declare their own payload length at +0x08 (= size - 14) after a 14-byte
@@ -75,9 +80,7 @@ PAYLOAD_LEN = {0x001E, 0x001F, 0x0023, 0x0026, 0x002A, 0x002B, 0x0032}
 # Types whose record size encodes the element count with no count field:
 #   size == base + element * k
 IMPLIED_COUNT = {
-    0x0001: (106, 14),
-    0x001A: (26, 28),
-    0x002D: (26, 32),
+    0x001A: (26, 14),
 }
 
 TRAILER_STAMPS = {0x1540, 0x1548, 0x1640, 0x1648}
@@ -124,6 +127,9 @@ def _covered_ranges(c: "pubcore.Chunk") -> list:
     elif tm in PAYLOAD_LEN:
         if n >= 14 and struct.unpack_from("<H", d, 8)[0] == n - 14:
             rng.append((4, n))
+    elif tm == 0x0029:
+        if n >= 54 and struct.unpack_from("<H", d, 0x30)[0] == n - 54:
+            rng.append((4, n))
     elif tm in IMPLIED_COUNT:
         base, elem = IMPLIED_COUNT[tm]
         if n >= base and (n - base) % elem == 0:
@@ -137,6 +143,37 @@ def _covered_ranges(c: "pubcore.Chunk") -> list:
     return rng
 
 
+# Byte ranges whose semantics are named in the spec (stronger than framing coverage).
+NAMED = {
+    0x0015: lambda n, d: [(0, n)],
+    0x0014: lambda n, d: [(0, min(n, 0x24 + 2 * struct.unpack_from("<H", d, 0x1A)[0]))],
+    0x0016: lambda n, d: [(0, n)],
+    0x0021: lambda n, d: [(0, n)],
+    0x0022: lambda n, d: [(0, n)],
+    0x0000: lambda n, d: [(0, 0x16)],          # marker/descriptor/rotation/bbox
+    0x0002: lambda n, d: [(0, 0x16)],
+    0x0003: lambda n, d: [(0, 0x16)],
+    0x0004: lambda n, d: [(0, 0x16)],
+    0x0005: lambda n, d: [(0, 0x16)],
+    0x0006: lambda n, d: [(0, 0x16)],
+    0x0007: lambda n, d: [(0, 0x16)],
+    0x0001: lambda n, d: [(0, 0x16)],
+    0x000F: lambda n, d: [(0, min(n, 0x22 + 2 * struct.unpack_from("<H", d, 0x18)[0]))],
+}
+
+
+def named_coverage(c: "pubcore.Chunk"):
+    n = len(c.data)
+    fn = NAMED.get(c.type_marker)
+    if fn is None:
+        return 0, n
+    mask = bytearray(n)
+    for a, b in fn(n, c.data):
+        for i in range(max(0, a), min(n, b)):
+            mask[i] = 1
+    return sum(mask), n
+
+
 def coverage(c: "pubcore.Chunk"):
     n = len(c.data)
     mask = bytearray(n)
@@ -147,7 +184,7 @@ def coverage(c: "pubcore.Chunk"):
 
 
 def validate_file(path: str, v: Violations):
-    stats = {"files": 0, "explained": 0, "payload": 0}
+    stats = {"files": 0, "explained": 0, "payload": 0, "named": 0}
     doc = pubcore.parse_contents(path)
     d = doc.contents
     stats["files"] = 1
@@ -336,6 +373,47 @@ def validate_file(path: str, v: Violations):
         got, total = coverage(c)
         stats["explained"] += got
         stats["payload"] += total
+        ngot, ntot = named_coverage(c)
+        stats["named"] += ngot
+
+    # ---- extra record checks -------------------------------------------
+    for c in doc.of_type(0x22):
+        if c.size != 18 or c.data[8:10] != b"MO":
+            v.add(path, "record_0x22", "id %d size %d sig %s" % (c.id, c.size, c.data[8:10].hex()))
+    for c in doc.of_type(0x21):
+        if len(c.data) >= 12 and c.data[8:12] != b"\x01\x00\x09\x00":
+            v.add(path, "image_data.signature", "id %d %s" % (c.id, c.data[8:12].hex()))
+    for c in doc.of_type(0x16):
+        refs = [struct.unpack_from("<H", c.data, o)[0] for o in (0x08, 0x0A, 0x0C, 0x0E)]
+        want = [0x1A, 0x1C, 0x2E, 0x2D]
+        for r, w in zip(refs, want):
+            ref = by_id.get(r)
+            if ref is None or ref.type_marker != w:
+                v.add(path, "chunk16.slot_order", "id %d -> %d want %#06x" % (c.id, r, w))
+
+    # ---- nested documents (Objects/Object N/Contents) -------------------
+    try:
+        import olefile
+        ole = olefile.OleFileIO(path)
+        for entry in ole.listdir():
+            name = "/".join(entry)
+            if name.endswith("/Contents") or name == "Contents":
+                if not name.startswith("Objects/"):
+                    continue
+                blob = ole.openstream(entry).read()
+                if len(blob) >= 0x20:
+                    if struct.unpack_from("<H", blob, 0)[0] != 0xACE8:
+                        v.add(path, "nested.magic", name)
+                    ntr = struct.unpack_from("<I", blob, 0x16)[0]
+                    if not (0x22 <= ntr < len(blob) - 4):
+                        v.add(path, "nested.directory", "%s offset %d" % (name, ntr))
+                    else:
+                        n = struct.unpack_from("<H", blob, ntr)[0]
+                        if ntr + 2 + 10 * n + 12 > len(blob):
+                            v.add(path, "nested.directory_extent", name)
+        ole.close()
+    except Exception as e:
+        v.add(path, "nested.inspect", "%s: %s" % (type(e).__name__, e))
     return stats
 
 
@@ -369,6 +447,7 @@ def main():
         agg["files"] += 1
         agg["explained"] += st["explained"]
         agg["payload"] += st["payload"]
+        agg["named"] += st["named"]
 
     by_check = collections.Counter((c for _, c, _ in v.items))
     print("files                : %d" % agg["files"])
@@ -385,6 +464,8 @@ def main():
         print("documented coverage  : %.1f%%" % (100.0 * agg["explained"] / agg["payload"]))
         print("unexplained          : %.1f%%  (%d bytes)"
               % (pct, agg["payload"] - agg["explained"]))
+        print("named-field coverage : %.1f%%  (bytes inside a field whose meaning the spec states)"
+              % (100.0 * agg["named"] / agg["payload"]))
     return 0 if len(v) == 0 else 1
 
 

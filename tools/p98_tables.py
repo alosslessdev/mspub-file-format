@@ -211,6 +211,53 @@ def cmd_grids(corpora, min_cells=4, verbose=True):
     return hits
 
 
+def cmd_lattices(corpora, min_cells=4):
+    """Equal-size siblings whose top-left corners form a full rows x cols matrix.
+
+    Weaker than `grids`: cells may have gutters between them, but every cell must
+    share one width and one height and the corner set must be a complete product.
+    """
+    ndocs = 0
+    hits = []
+    for corp, f, doc in load_corpora(corpora):
+        ndocs += 1
+        byid = {c.id: c for c in doc.chunks}
+        buckets = collections.defaultdict(list)
+        for c in doc.chunks:
+            if c.type_marker in SHAPE_TYPES:
+                b = marker_bbox(c)
+                if b:
+                    buckets[c.parent].append((c, b))
+        for parent, lst in buckets.items():
+            bysize = collections.defaultdict(list)
+            for c, b in lst:
+                bysize[(b[2] - b[0], b[3] - b[1])].append((c, b))
+            for (w, h), items in bysize.items():
+                if len(items) < min_cells:
+                    continue
+                xs = sorted({b[0] for _, b in items})
+                ys = sorted({b[1] for _, b in items})
+                if len(xs) < 2 or len(ys) < 2:
+                    continue
+                if len(xs) * len(ys) != len(items):
+                    continue
+                dx = sorted({xs[i + 1] - xs[i] for i in range(len(xs) - 1)})
+                dy = sorted({ys[i + 1] - ys[i] for i in range(len(ys) - 1)})
+                ptype = byid[parent].type_marker if parent in byid else None
+                hits.append(dict(corpus=corp, file=f, parent=parent, ptype=ptype,
+                                 cells=len(items), cols=len(xs), rows=len(ys),
+                                 w=w, h=h, dx=dx, dy=dy,
+                                 markers=sorted({c.type_marker for c, _ in items})))
+    print("documents scanned: %d   equal-size lattices: %d" % (ndocs, len(hits)))
+    for h in sorted(hits, key=lambda d: -d["cells"]):
+        print("  %-28s parent=%#06x type=%s %dx%d cells w=%d h=%d pitch_x=%s pitch_y=%s markers=%s"
+              % (os.path.basename(h["file"]), h["parent"],
+                 "0x%02x" % h["ptype"] if h["ptype"] is not None else "MISSING",
+                 h["cols"], h["rows"], h["w"], h["h"],
+                 h["dx"][:3], h["dy"][:3], ["0x%02x" % m for m in h["markers"]]))
+    return hits
+
+
 # --------------------------------------------------------------------------- libmspub
 
 # libmspub MSPUBParser::getBlockDataLength -> value width for a block "type" byte.
@@ -246,50 +293,107 @@ def block_at(data, i):
     return bid, btype, data[i + 2:i + 2 + ln], i + 2 + ln
 
 
+def walk_chain(data, start, base):
+    """Greedy libmspub-block walk; returns (blocks, consumed) like pubdump."""
+    import pubdump
+    return pubdump.walk_blocks(data[start:], base + start)
+
+
 def cmd_libmspub(corpora):
+    """Test libmspub's table model against this family.
+
+    Requirement set (MSPUBParser.cpp parseShape/parseBlock):
+      * a content chunk with marker 0x10 (TABLE) whose payload is a TLV block list
+        carrying ids 0x66/0x67/0x6B/0x6D, plus a chunk with marker 0x63 (CELLS);
+      * every block framed as {u8 id, u8 type, payload-of-type-width}.
+
+    A TLV list only counts when the SAME start offset works for most chunks of a
+    type, with >=3 blocks, a 00 00 terminator and the list ending exactly at the
+    payload end.  Single chunks terminating by accident (most records end in zero
+    bytes) are not evidence.
+    """
+    import pubdump
     docs = 0
-    idcount = collections.Counter()          # (id,type) doublets anywhere
-    idchunks = collections.Counter()         # chunks containing the id at a parseable offset
-    cooc = collections.Counter()             # chunks containing >=2 distinct table ids
-    full = []                               # chunks containing 0x66,0x67,0x6B,0x6D
+    chunks = 0
+    per = collections.defaultdict(list)
+    raw = collections.Counter()
+    sane = collections.Counter()
     for corp, f, doc in load_corpora(corpora):
         docs += 1
         for c in doc.chunks:
+            chunks += 1
+            per[c.type_marker].append(c)
             d = c.data
-            present = set()
             for i in range(len(d) - 1):
                 bid, btype = d[i], d[i + 1]
-                if bid in TABLE_IDS:
-                    idcount[(bid, btype)] += 1
-                    present.add(bid)
-            # only count occurrences that parse as a valid block with the
-            # libmspub type bytes that give the expected value width
-            for i in range(len(d) - 1):
-                blk = block_at(d, i)
-                if not blk:
+                if bid in TABLE_IDS and btype in TYPE_LEN:
+                    raw[(bid, btype)] += 1
+                    if TYPE_LEN[btype] == 2 and i + 4 <= len(d):
+                        v = struct.unpack_from("<H", d, i + 2)[0]
+                        if 1 <= v <= 64:
+                            sane[(bid, btype, v)] += 1
+
+    print("documents: %d   chunks: %d" % (docs, chunks))
+    print("\n[level 1] content chunks of the two required markers (see `census`): 0x10=0, 0x63=0")
+
+    print("\n[level 2] best fixed-start TLV list per marker (>=3 blocks, exact end)")
+    best_by_marker = {}
+    best_rows = []
+    for tm, lst in per.items():
+        if len(lst) < 50:
+            continue
+        best = (0, None, 0)
+        for start in range(0, 64):
+            ex = tot = 0
+            for c in lst:
+                if len(c.data) <= start + 2:
                     continue
-                bid, btype, payload, nxt = blk
-                if bid in TABLE_IDS:
-                    idchunks[(c.type_marker, bid, btype)] += 1
-            if len(present) >= 2:
-                cooc[tuple(sorted(present))] += 1
-            if {0x66, 0x67, 0x6B, 0x6D} <= present:
-                full.append((f, c.index, c.type_marker, c.offset, sorted(present)))
-    print("documents: %d" % docs)
-    print("\nbyte-pair counts (id byte, following byte) anywhere in chunk payloads:")
-    for (bid, btype), n in sorted(idcount.items()):
-        print("  id=0x%02x %-18s next=0x%02x  n=%d"
-              % (bid, TABLE_IDS[bid], btype, n))
-    print("\nparseable-block occurrences (chunk marker, block id, block type):")
-    for k, n in sorted(idchunks.items()):
-        print("  chunk 0x%02x  id=0x%02x %-18s type=0x%02x  n=%d"
-              % (k[0], k[1], TABLE_IDS[k[1]], k[2], n))
-    print("\nchunks carrying >=2 distinct libmspub table ids: %d" % sum(cooc.values()))
-    for k, n in cooc.most_common(20):
-        print("  ids=%s  n=%d" % (k, n))
-    print("\nchunks carrying all of 0x66/0x67/0x6B/0x6D: %d" % len(full))
-    for row in full[:20]:
-        print("  %s chunk#%d marker=0x%02x off=0x%x ids=%s" % row)
+                tot += 1
+                blocks, consumed = pubdump.walk_blocks(c.data[start:], c.offset + start)
+                if (len(blocks) >= 3 and blocks[-1][4] == "TERMINATOR"
+                        and start + consumed == len(c.data)):
+                    ex += 1
+            if tot and ex > best[0]:
+                best = (ex, start, tot)
+        if best[1] is not None:
+            best_by_marker[tm] = best
+            best_rows.append((best[0] / best[2], tm) + best)
+    best_rows.sort(reverse=True)
+    for rate, tm, ex, start, tot in best_rows[:8]:
+        print("  marker 0x%04x  best start=+%-2d  exact=%d/%d (%.0f%%)"
+              % (tm, start, ex, tot, 100.0 * rate))
+    print("  -> no marker reaches 100%%; the payloads are fixed records, not TLV lists")
+
+    print("\n[level 3] table block ids inside the best-fixed-start chains")
+    found = False
+    for rate, tm, ex, start, tot in best_rows:
+        hits = collections.Counter()
+        for c in per[tm]:
+            if len(c.data) <= start + 2:
+                continue
+            blocks, consumed = pubdump.walk_blocks(c.data[start:], c.offset + start)
+            if not (len(blocks) >= 3 and blocks[-1][4] == "TERMINATOR"
+                    and start + consumed == len(c.data)):
+                continue
+            for b in blocks:
+                if not b[4] and b[1] in TABLE_IDS:
+                    hits[(b[1], b[2])] += 1
+        for (bid, btype), n in hits.items():
+            print("  marker 0x%04x id=0x%02x %-18s type=0x%02x n=%d (of %d exact)"
+                  % (tm, bid, TABLE_IDS[bid], btype, n, ex))
+            found = True
+    if not found:
+        print("  none")
+
+    print("\n[context] raw {id,type} doublets that would *start* a table block, any byte offset:")
+    for (bid, btype), n in sorted(raw.items())[:12]:
+        print("  id=0x%02x %-18s type=0x%02x  n=%d" % (bid, TABLE_IDS[bid], btype, n))
+    print("  (%d distinct doublets total)" % len(raw))
+    print("  doublet followed by u16 in 1..64: %d distinct, %d occurrences"
+          % (len({k[:2] for k in sane}), sum(sane.values())))
+    print("\nRaw doublets are not evidence: the id bytes occur inside WMF image payloads and\n"
+          "coordinate/colour fields.  libmspub's table reader needs a TABLE chunk (0x10) and\n"
+          "framed blocks; neither exists in this family.")
 
 
 # --------------------------------------------------------------------------- dump
@@ -318,7 +422,7 @@ def cmd_dump(path, parent):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["census", "grids", "libmspub", "dump"])
+    ap.add_argument("cmd", choices=["census", "grids", "lattices", "libmspub", "dump"])
     ap.add_argument("targets", nargs="+")
     ap.add_argument("--min-cells", type=int, default=4)
     a = ap.parse_args()
@@ -326,6 +430,8 @@ def main():
         cmd_census(a.targets)
     elif a.cmd == "grids":
         cmd_grids(a.targets, a.min_cells)
+    elif a.cmd == "lattices":
+        cmd_lattices(a.targets, a.min_cells)
     elif a.cmd == "libmspub":
         cmd_libmspub(a.targets)
     else:

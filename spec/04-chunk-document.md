@@ -12,6 +12,13 @@ where `Npages` is the number of PAGE (`0x14`) chunks in the file. Corpus sizes t
 124 (5 pages) ×87, 126 (6) ×27, 128 (7) ×1, 130 (8) ×12, 138 (12) ×1. The chunk has no other
 variable part and no padding. [OBSERVED]
 
+**Version scope.** This rule is exact for the 128 Publisher 95 documents. Publisher 97 appends
+30 bytes and Publisher 98 appends 72 bytes after the same variable tail, so the general form is
+`size == 0x74 + 2*(Npages-1) + R` with `R = 0 | 30 | 72` for 95 | 97 | 98 (measured over all 484
+corpora documents: p95 0×128, p97 30×105 + 0×1, p97deluxe 30×248, p98 72×2). For Publisher 98 the
+page count must include page slots of type `0x41` as well as `0x14`. The appended region is
+partially mapped in chapter 18 and is the remaining open item for 97/98. [OBSERVED]
+
 ## 4.2 Layout
 
 Chunk-relative offsets. All values are little-endian. `count` = "distinct values over 128

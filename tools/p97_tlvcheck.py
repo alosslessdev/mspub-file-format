@@ -134,9 +134,118 @@ def check_chunk(payload: bytes, max_prologue: int, min_blocks: int,
     return best[1], best[2]
 
 
+
+# Groups of block types that share a payload length in BLOCK_LEN.  A compiled
+# length table (byte/short/dword array indexed by type) must show these three
+# groups as constant runs and must distinguish all six probe values.
+_GROUPS = ([0x05, 0x08, 0x0A, 0x78], [0x10, 0x12, 0x18, 0x1A, 0x07],
+           [0x20, 0x22, 0x58, 0x68, 0x70, 0xB8], [0x28], [0x38], [0x48])
+
+
+def scan_binary_for_table(paths):
+    """Search PE images for a 256-entry array encoding BLOCK_LEN.
+
+    Returns a list of (path, offset, width, values).  A hit means the binary
+    really contains the table as data; no hit means the table is either absent
+    or implemented as code (a switch), which then has to be found by
+    disassembly.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        print("numpy required for --scan-binaries")
+        return []
+    hits = []
+    for path in paths:
+        with open(path, "rb") as fh:
+            blob = fh.read()
+        arr = np.frombuffer(blob, dtype=np.uint8)
+        for width, dtype in ((1, np.uint8), (2, np.uint16), (4, np.uint32)):
+            n = len(arr) // width - 256
+            if n <= 0:
+                continue
+            vals = np.frombuffer(blob, dtype=dtype, count=n + 256)
+            ok = np.ones(n, bool)
+            for grp in _GROUPS:
+                base = vals[grp[0]:grp[0] + n]
+                for k in grp[1:]:
+                    ok &= (vals[k:k + n] == base)
+            for idx in np.nonzero(ok)[0]:
+                v = [int(vals[idx + k]) for k in (0x05, 0x10, 0x20, 0x28, 0x38, 0x48)]
+                if len(set(v)) == 6:
+                    hits.append((path, int(idx) * width, width, v))
+    return hits
+
+
+
+def scan_code_for_switch(paths, window=600):
+    """Search for a `cmp reg, imm` cluster that could be the length switch.
+
+    Linear sweep with skipdata over the raw file (no section parsing), so data
+    bytes are swept too -- the test is therefore *permissive*: a function that
+    really compares a byte against the fifteen table types would show up as a
+    cluster of 15 distinct immediates within `window` bytes.  Any result below
+    that threshold can be reported as "no such switch exists in the image".
+    """
+    try:
+        import capstone
+    except ImportError:
+        print("capstone required for --scan-code")
+        return
+    table_types = sorted(BLOCK_LEN)
+    try:
+        import pefile
+    except ImportError:
+        pefile = None
+    for path in paths:
+        with open(path, "rb") as fh:
+            blob = fh.read()
+        # sweep code sections only -- a raw-file sweep hits data tables and
+        # produces meaningless "clusters"
+        regions = []
+        if pefile is not None:
+            pe = pefile.PE(path, fast_load=True)
+            for sct in pe.sections:
+                if sct.Name.startswith(b".text") or sct.Name.startswith(b".code"):
+                    regions.append((blob[sct.PointerToRawData:
+                                         sct.PointerToRawData + sct.Misc_VirtualSize],
+                                    pe.OPTIONAL_HEADER.ImageBase + sct.VirtualAddress))
+        if not regions:
+            regions = [(blob, 0)]
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        md.skipdata = True
+        events = []
+        for code, base in regions:
+            for ins in md.disasm(code, base):
+                if ins.mnemonic != "cmp":
+                    continue
+                op = ins.op_str.split(",")[-1].strip()
+                if not op.startswith("0x"):
+                    continue
+                try:
+                    v = int(op, 16)
+                except ValueError:
+                    continue
+                if v in BLOCK_LEN:
+                    events.append((ins.address, v))
+        events.sort()
+        best = (0, 0, [])
+        for i, (addr, v) in enumerate(events):
+            seen = {v}
+            j = i
+            while j + 1 < len(events) and events[j + 1][0] - addr <= window:
+                j += 1
+                seen.add(events[j][1])
+            if len(seen) > best[0]:
+                best = (len(seen), addr, sorted(seen))
+        print("%-24s text cmp-imm %5d  best cluster %2d/%d at 0x%x  %s"
+              % (os.path.basename(path), len(events), best[0], len(table_types),
+                 best[1], ["%#04x" % x for x in best[2]]))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("corpora", nargs="+")
+    ap.add_argument("corpora", nargs="*")
     ap.add_argument("--max-prologue", type=int, default=64)
     ap.add_argument("--min-blocks", type=int, default=2)
     ap.add_argument("--markers", default=None,
@@ -146,7 +255,36 @@ def main() -> int:
     ap.add_argument("--unknown-len0", action="store_true",
                     help="treat unknown block types as zero length (libmspub default)")
     ap.add_argument("--table", action="store_true", help="print the length table and exit")
+    ap.add_argument("--scan-code", nargs="+", metavar="DIR",
+                    help="search binaries for a 15-way cmp-imm switch (capstone)")
+    ap.add_argument("--scan-binaries", nargs="+", metavar="DIR",
+                    help="search every file under DIR for a compiled copy of the table")
     a = ap.parse_args()
+
+    if a.scan_code:
+        paths = []
+        for d in a.scan_code:
+            if os.path.isdir(d):
+                paths += sorted(os.path.join(d, x) for x in os.listdir(d)
+                                if os.path.isfile(os.path.join(d, x)))
+            else:
+                paths.append(d)
+        scan_code_for_switch(paths)
+        return 0
+
+    if a.scan_binaries:
+        paths = []
+        for d in a.scan_binaries:
+            if os.path.isdir(d):
+                paths += sorted(os.path.join(d, x) for x in os.listdir(d)
+                                if os.path.isfile(os.path.join(d, x)))
+            else:
+                paths.append(d)
+        hits = scan_binary_for_table(paths)
+        print("scanned %d files, %d table hits" % (len(paths), len(hits)))
+        for path, off, width, vals in hits[:20]:
+            print("  %s @0x%x width=%d groups=%s" % (path, off, width, vals))
+        return 0
 
     if a.table:
         for t in sorted(BLOCK_LEN):
@@ -176,9 +314,9 @@ def main() -> int:
           % (files, len(per_type), a.max_prologue, a.min_blocks,
              "len0" if a.unknown_len0 else "fail"))
     print()
-    print("%-8s %7s %8s %6s %9s %8s %6s %7s %10s"
+    print("%-8s %7s %8s %6s %9s %8s %6s %7s %6s %10s"
           % ("marker", "      n", "  exact", "  frac", " prologue", "blocks", " var",
-             " pl%", "  null"))
+             " pl%", "  nd", "  null"))
     rows = []
     rng = random.Random(0x97)
     for tm in sorted(per_type):
@@ -186,7 +324,7 @@ def main() -> int:
         n = len(chunks)
         exact = 0
         best_p = collections.Counter()
-        nblocks = var = nzero = 0
+        nblocks = var = nzero = nd = 0
         for c in chunks:
             p, w = check_chunk(c.data, a.max_prologue, a.min_blocks, a.unknown_len0)
             if p is not None:
@@ -195,6 +333,8 @@ def main() -> int:
                 nblocks += w.blocks
                 var += w.var
                 nzero += w.zero
+                if w.blocks and (w.blocks - w.zero) * 2 >= w.blocks:
+                    nd += 1
         # null model: same payload lengths, uniformly random bytes
         null = 0.0
         if a.null_trials:
@@ -209,17 +349,19 @@ def main() -> int:
             null = 100.0 * hit / tried if tried else 0.0
         top_p = best_p.most_common(1)[0][0] if best_p else -1
         pl = 100.0 * (nblocks - nzero) / nblocks if nblocks else 0.0
-        rows.append((tm, n, exact, exact / n, top_p, nblocks, var, pl, null))
-    rows.sort(key=lambda r: (-r[3], -r[1]))
-    for tm, n, exact, frac, top_p, nblocks, var, pl, null in rows:
-        print("%#08x %7d %8d %5.1f%% %9s %8d %6d %6.1f%% %9.1f%%"
+        rows.append((tm, n, exact, exact / n, top_p, nblocks, var, pl, nd, null))
+    rows.sort(key=lambda r: (-r[8], -r[3], -r[1]))
+    for tm, n, exact, frac, top_p, nblocks, var, pl, nd, null in rows:
+        print("%#08x %7d %8d %5.1f%% %9s %8d %6d %6.1f%% %6d %9.1f%%"
               % (tm, n, exact, 100 * frac, ("+%d" % top_p) if top_p >= 0 else "-",
-                 nblocks, var, pl, null))
+                 nblocks, var, pl, nd, null))
     print()
     tot = sum(r[1] for r in rows)
     tot_exact = sum(r[2] for r in rows)
-    print("TOTAL chunks %d, exact-terminating %d (%.1f%%)"
-          % (tot, tot_exact, 100.0 * tot_exact / tot if tot else 0.0))
+    tot_nd = sum(r[8] for r in rows)
+    print("TOTAL chunks %d, exact-terminating %d (%.1f%%), non-degenerate %d (%.2f%%)"
+          % (tot, tot_exact, 100.0 * tot_exact / tot if tot else 0.0,
+             tot_nd, 100.0 * tot_nd / tot if tot else 0.0))
     return 0
 
 

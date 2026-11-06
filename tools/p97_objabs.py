@@ -53,8 +53,9 @@ def abs_offset(o, path, off):
         sec = off // o.sector_size
         return 512 + ch[sec] * o.sector_size + (off % o.sector_size)
     rch = chain(o, o.root.isectStart)
-    sec = off // o.mini_sector_size
-    return 512 + rch[sec] * o.sector_size + (off % o.mini_sector_size)
+    pos = e.isectStart * o.mini_sector_size + off
+    sec = pos // o.sector_size
+    return 512 + rch[sec] * o.sector_size + (pos % o.sector_size)
 
 
 if __name__ == '__main__':

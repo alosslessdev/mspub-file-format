@@ -34,7 +34,8 @@ import struct
 import sys
 
 MAGIC = 0x5F3F
-_NAME_RE = re.compile(rb"^[\|$A-Za-z0-9_.\-]{2,40}$")
+# Internal ("|SYSTEM", "|bm0", ...) or baggage ("ARROW1.WMF", "BACKBTN.BMP") name.
+_NAME_RE = re.compile(rb"^(?:\|[A-Za-z0-9_]+|[A-Z0-9_\-]{2,16}\.[A-Z0-9]{2,4})$")
 
 
 def parse(path):
@@ -57,7 +58,8 @@ def parse(path):
 
 def directory(d, dir_off):
     """Walk a directory node: repeated `name NUL u32 offset`, resyncing over
-    the small per-page markers that interrupt the entry list."""
+    the small per-page markers that interrupt the entry list.  An entry is
+    kept only when its slot header validates (8 <= slot_len, slot fits)."""
     ents = {}
     p = dir_off
     n = len(d)
@@ -65,30 +67,26 @@ def directory(d, dir_off):
         q = p
         while q < n and 32 < d[q] < 127:
             q += 1
-        if q < n and d[q] == 0 and 2 <= q - p <= 40 and _NAME_RE.match(d[p:q]):
+        if q < n and d[q] == 0 and 2 <= q - p <= 20 and _NAME_RE.match(d[p:q]):
             name = d[p:q].decode("ascii")
             off = struct.unpack_from("<I", d, q + 1)[0]
-            if off < n and name not in ents:
-                ents[name] = off
-                p = q + 5
-                continue
+            if 0x10 <= off <= n - 8:
+                slot_len = struct.unpack_from("<I", d, off)[0]
+                if 9 <= slot_len <= n - off and name not in ents:
+                    ents[name] = off
+                    p = q + 5
+                    continue
         p += 1
     return ents
 
 
 def slots(ents):
-    """(name, off, slot_len, data_len) sorted by offset."""
-    out = []
-    for name, off in ents.items():
-        out.append((name, off))
-    out.sort(key=lambda kv: kv[1])
-    res = []
+    """(name, off, slot_len, data_len, end) sorted by offset."""
     d = _DATA
-    for name, off in out:
-        if off + 8 > len(d):
-            continue
+    res = []
+    for name, off in sorted(ents.items(), key=lambda kv: kv[1]):
         slot_len, data_len = struct.unpack_from("<II", d, off)
-        res.append((name, off, slot_len, data_len))
+        res.append((name, off, slot_len, data_len, off + slot_len))
     return res
 
 
@@ -102,29 +100,30 @@ def report(path, verbose=False):
           % (info["magic"], info["version"], info["dir_off"], info["alt_off"],
              info["file_len"], "OK" if info["file_len"] == n else "MISMATCH"))
     sl = slots(info["entries"])
-    print("  %d named slots" % len(sl))
+    uniq = []
+    for s in sl:
+        if not uniq or s[1] != uniq[-1][1]:
+            uniq.append(s)
+    print("  %d named slots (%d distinct offsets)" % (len(sl), len(uniq)))
     prev_end = 0x10
     gaps = []
     tiles = 0
-    for name, off, slot_len, data_len in sl:
+    for name, off, slot_len, data_len, end in uniq:
         if off != prev_end:
-            if off > prev_end:
-                gaps.append((prev_end, off - prev_end))
-            else:
-                gaps.append((off, -(prev_end - off)))
+            gaps.append((prev_end, off - prev_end, "before " + name))
         else:
             tiles += 1
-        prev_end = max(prev_end, off + slot_len)
+        prev_end = end
     if n > prev_end:
-        gaps.append((prev_end, n - prev_end))
-    print("  exact tiles: %d/%d   listed coverage: 0x10..0x%06x of 0x%06x"
-          % (tiles, len(sl) - 1, prev_end, n))
-    print("  regions not covered by a listed slot:")
-    for off, ln in gaps:
-        print("      0x%06x + 0x%06x  %s" % (off, ln, _what(d, off, ln)))
+        gaps.append((prev_end, n - prev_end, "tail"))
+    print("  chained tiles: %d/%d   chain ends at 0x%06x of 0x%06x"
+          % (tiles, len(uniq) - 1, prev_end, n))
+    print("  regions not covered by the slot chain:")
+    for off, ln, why in gaps:
+        print("      0x%06x + 0x%06x  %-16s %s" % (off, ln, why, _what(d, off, ln)))
     if verbose:
         print("%-16s %8s %8s %8s  %s" % ("name", "offset", "slot_len", "data_len", "payload[0:8]"))
-        for name, off, slot_len, data_len in sl:
+        for name, off, slot_len, data_len, end in sl:
             print("%-16s %08x %8x %8x  %s"
                   % (name, off, slot_len, data_len, d[off + 8:off + 16].hex(" ")))
     return info

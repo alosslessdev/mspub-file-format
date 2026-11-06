@@ -139,6 +139,7 @@ def scan(docs, max_start=MAX_START):
         "bsample": {},
     })
     chunk_n = collections.Counter()          # chunk_type -> chunk count
+    end0000 = collections.Counter()          # chunk_type -> chunks ending with 00 00
     dp_any = collections.Counter()           # chunk_type -> chunks with any exact start
     dp_sub = collections.Counter()           # chunk_type -> chunks with a substantive start
     dp_sub_events = collections.Counter()    # chunk_type -> #(chunk,start) substantive
