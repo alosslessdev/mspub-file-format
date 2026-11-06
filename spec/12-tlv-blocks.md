@@ -303,3 +303,26 @@ parse_chunk(chunk):
 * `0x0022` body semantics — **[UNKNOWN]**. Experiment: create a document in
   Publisher 98 with N masters and compare the ordinal with the master count.
 * Element content of the SHAPE and LOGO arrays — chapters 06 and 11.
+
+## 12.11 Rare markers `0x0036`, `0x004E`, `0x004F`, `0x0050`
+
+These four markers occur only in the `.JSP` publications on the Publisher 98 CD
+(`CHEKLIST.JSP`), with 1-4 instances each, so they are recorded here as measured
+framing rather than as a completed layout. All four follow the same idiom as the
+counted records of 12.4: a duplicated `u16` count in the header.
+
+| Marker | Instances | Size | Header bytes (hex) | Duplicate count |
+|---|---|---|---|---|
+| `0x0036` | 4 (identical) | 112 | `36 00 70 70 00 00 00 00 …` | none observed |
+| `0x004E` | 2 | 290 | `4E 00 0A 0A 00 00 00 00 00 06 00 06 00 2D 00 01 00 …` | `u16@+0x0A` == `u16@+0x0C` |
+| `0x004F` | 2 | 306 / 207 | `4F 00 0A 0A 00 00 00 00 00 1A 00 1A 00 0B 00 … 50 53` | `u16@+0x0A` == `u16@+0x0C` |
+| `0x0050` | 2 | 155 / 110 | `50 00 0A 0A 00 00 00 00 00 1B 00 1B 00 05 00 …` | `u16@+0x0A` == `u16@+0x0C` |
+
+`[OBSERVED]` size, prologue bytes and the duplicate-count idiom. `[UNKNOWN]` the
+element size and meaning of each array; the two records of `0x004E`/`0x004F`/
+`0x0050` in that file differ only in the count and payload length, so a single
+document with a controlled edit would settle each element size. Treatment: a
+reader must preserve these records verbatim when rewriting a document.
+
+`0x004F` ends with the ASCII bytes `50 53` ("PS") in the sampled file —
+`[INFERENCE]` a marker for a PostScript/print descriptor record.
