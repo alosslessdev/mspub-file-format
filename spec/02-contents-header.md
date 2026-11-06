@@ -21,7 +21,7 @@ All values measured over the 128-file corpus (`p95/x/**/*.PUB`). [OBSERVED unles
 | 0x04 | u16 | `format_version` | `300` (0x012C) in 128/128; loader also accepts 200 and 710 | gate 0x0045F6B3 |
 | 0x06 | u16 | `writer_stamp` | `0x0004` in 120 files, `0x3303` in 8 | §2.3 |
 | 0x08 | u32 | `declared_length` | `== len(Contents)` in 128/128 | 128/128 |
-| 0x0C | u16 | `header_tag` | `125` (0x007D) in 128/128 | gate: required when version == 300 |
+| 0x0C | u16 | `header_tag` | `125` (0x007D) in 128/128 P95 files; **version-dependent** — see §2.2.1 | gate: value must be in the loader's accepted set |
 | 0x0E | u16 | `document_chunk_id` | id of the DOCUMENT (0x15) chunk, 128/128 | §2.4 |
 | 0x10 | u16 | `page_4_id` | id of the 4th page in the document page order, 128/128 | §2.4 |
 | 0x12 | u32 | `const_574` | `574` (0x0000023E) in 128/128 | 128/128 |
@@ -61,16 +61,40 @@ From VA `0x0045F6B3` [OBSERVED, binary]:
 | 3 | `declared_length` > actual stream length | error 0xE |
 | 4 | `magic` == 0xACE7 and `format_version` == 0x02C6 | legacy-ACE7 path (sets the "legacy file" global) |
 | 5 | `format_version` == 200 | legacy-200 path, requires `header_tag` == 0x02C0 else error 0xF |
-| 6 | otherwise | requires `format_version` == 300 **and** `header_tag` == 0x007D, else error 0xF |
+| 6 | otherwise | requires `format_version` == 300 **and** `header_tag` in the build's accepted set (§2.2.1): P95 `{125}`, P97 `{125,136}`, P98 `{125,136,616}`; else error 0xF |
 
 Consequences:
 
-* `0xACE7` is a *legacy* magic (older Publisher). No Publisher 95 corpus file uses it; the corpus
-  is entirely `0xACE8` / version 300 / tag 125. [OBSERVED]
+* `0xACE7` is a *legacy* magic (older Publisher). No corpus file uses it; every document is
+  `0xACE8` / version 300, with the tag of its writer generation (§2.2.1). [OBSERVED]
 * `0x02C6` (710) and `200` are the legacy format versions the Publisher 95 binary still accepts.
   [OBSERVED in the loader, unexercised by the corpus]
 * The loader does **not** inspect `+0x06`, `+0x0E`, `+0x10`, `+0x12`, `+0x1A`, `+0x1E` or `+0x20`.
   [OBSERVED]
+
+## 2.2.1 `header_tag` is version-scoped, not fixed
+
+Rule 6 above is the **Publisher 95** binary's rule. The tag is not a format constant: each
+generation writes a different value and each generation's loader accepts a different set.
+Measured over all 493 documents (the `.JSP` publications included) and corroborated in the three
+executables: [OBSERVED]
+
+| Corpus | `header_tag` | Files | Loader acceptance |
+|---|---|---|---|
+| P95 (`p95/x`) | `125` (`0x007D`) | 130/130 | P95 `0x0045F6B3`: `125` only |
+| P97 (`p97/x`) | `136` (`0x0088`) | 107/108; the remaining file is a P95-format document writing `125` | P97 `0x00416A83`: `125` or `136` |
+| P97 deluxe | `136` | 250/250 | " |
+| P98 (`p98/x`) | `616` (`0x0268`) | 5/5 | P98 `0x004FA80A`: `125`, `136` or `616` |
+
+Consequences for a reader:
+
+* A file whose tag is `136` or `616` is **not** corrupt and is not a legacy file; it is a
+  97 or 98 document. Rejecting anything but `125` rejects 363 of the 493 documents.
+* The accepted set grows monotonically across generations, which is how one binary can open
+  older documents — so the tag is a *writer generation* discriminator, like the `+0x06`
+  stamp (§2.3) and the chunk descriptor pairs (§2.5).
+* The earlier statement in this chapter that the tag is `125` "required when version == 300"
+  describes only the Publisher 95 build. [Correction, measured 487/487]
 
 ## 2.3 The `+0x06` stamp and its two populations
 

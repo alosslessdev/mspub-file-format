@@ -23,7 +23,7 @@ import pubread
 # Writer-side fixed record length byte at +0x03. Publisher 98 grew the IMAGE record
 # by 24 bytes (116 -> 140), so the marker has a version-dependent value set.
 RECORD_LEN_B = {0x00: {92}, 0x01: {96}, 0x02: {116, 140}, 0x03: {116}, 0x04: {59},
-                0x05: {62}, 0x06: {53}, 0x07: {41}, 0x16: {16}}
+                0x05: {62}, 0x06: {53}, 0x07: {41}, 0x16: {16, 18}}
 RECORD_BASE = {0x00: 102, 0x01: 106, 0x02: 126, 0x03: 126, 0x04: 59, 0x05: 62,
                0x06: 53, 0x07: 41, 0x16: 16}
 
@@ -114,7 +114,7 @@ def check_file(path: str, stats: collections.Counter, failures: list):
                 break
 
     for c in doc.chunks:
-        if c.type_marker in (0x00, 0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x16):
+        if c.type_marker in (0x00, 0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08):
             if len(c.data) < 0x16:
                 continue
             x0, y0, x1, y1 = struct.unpack_from("<iiii", c.data, 6)

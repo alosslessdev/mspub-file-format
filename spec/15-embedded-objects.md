@@ -18,7 +18,7 @@ Publisher 98 publications contain none.
 | `\x02OlePres000` | 2 162 (all objects) | 40 – 148 880 | mandatory preview; WMF metafile + descriptor |
 | `\x01CompObj` | 2 045 | 72 – 120 | OLE1 class descriptor (ProgID, clipboard format) |
 | `\x01Ole` | 1 556 | 20 | OLE stream header |
-| `Contents` | 1 241 | 95 – 148 832 | **a complete nested Publisher document** |
+| `Contents` | 1 241 | 95 – 148 832 | the **embedded server's own document** (WordArt / packaged file), NOT a Publisher document — see §15.9 |
 | `\x03Internal` | 1 239 | 12 – 16 | Publisher-private state |
 | `\x01Ole10Native` | 921 | 652 – 15 844 | packaged (non-OLE) file payload |
 | `\x02OlePres001` | 407 | 280 – 49 286 | print-setup record (DEVMODE/DEVNAMES) |
@@ -169,13 +169,21 @@ reader resolves an embedded object only through `0x0022` and the storage name.
 
 ## 15.9 Recursion requirement
 
-`Objects/Object N/Contents` is a complete Publisher document: same `0xACE8`
-magic, same header, same directory, same chunks (chapter 02 onwards). A reader
-that walks the object graph **must recurse** into each nested `Contents` using the
-same parser; the corpus contains nested documents from 95 bytes to 148 832 bytes.
-Nesting is one level deep in every file (no `Objects` inside an `Object N`), but
-nothing in the format forbids it. [OBSERVED for depth; `[INFERENCE]` for the
-general case]
+`Objects/Object N/Contents` is **not** a Publisher document. All 1 241 such streams in
+the 493-document corpus were checked and none begins with the `0xACE8` magic:
+
+| First bytes | Streams | Meaning |
+|---|---|---|
+| `57 6f 72 64 41 72 74 20` (`"WordArt "`) | 1 239 | WordArt 2.0 document |
+| `78 56 34 12 4c 45 02 00` | 2 | packaged little-endian binary |
+
+Sizes range from 95 to 148 832 bytes. A Publisher reader must therefore treat this
+stream as **opaque** and attach it to the object for the owning server; recursing into it
+with the Publisher parser is wrong. (An earlier revision of this chapter asserted the
+opposite; the assumption was never measured and the measurement refutes it.) [OBSERVED]
+
+Nesting depth is one level in every file (no `Objects` inside an `Object N`); nothing in the
+format forbids deeper nesting. `[OBSERVED for depth; INFERENCE for the general case]`
 
 ## 15.10 Open
 

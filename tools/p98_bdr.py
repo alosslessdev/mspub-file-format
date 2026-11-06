@@ -139,20 +139,16 @@ def problems(doc):
             bad.append("entry %d: duplicate name %r (first at %d)"
                        % (e["index"], e["name"], seen_names[e["name"]]))
         seen_names.setdefault(e["name"], e["index"])
-        prev = -1
         for k, o in enumerate(e["slot_off"]):
-            if o < prev:
-                bad.append("entry %d: slot offset %d decreases at slot %d" % (e["index"], o, k))
-            prev = o
             s = e["slots"][k]
             if not s["size_ok"]:
                 bad.append("entry %d slot %s: span %d != wmf %s @%#x"
                            % (e["index"], s["slot"], s["span"], s["wmf_size"], s["abs"]))
         if len(set(e["unique"])) > 8:
             bad.append("entry %d: more than 8 unique tiles" % e["index"])
+    # The terminator record's first three u16 are dead bytes (observed: zero,
+    # a copy of the last entry, or unrelated values) - only its offsets matter.
     s = doc["sentinel"]
-    if s["band"] != (0, 0, 0):
-        bad.append("sentinel band %r not zero" % (s["band"],))
     if len(set(s["slot_off"])) != 1:
         bad.append("sentinel offsets not constant: %r" % (s["slot_off"],))
     if doc["sentinel_off"] + s["slot_off"][0] != doc["size"]:

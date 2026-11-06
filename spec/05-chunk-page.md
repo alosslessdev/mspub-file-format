@@ -1,14 +1,16 @@
 # 05 — PAGE chunk (`typeMarker 0x0014`)
 
-One PAGE chunk per page. 712 instances in the 128-file corpus; 5…12 pages per document
-(5 pages ×87, 6 ×27, 7 ×1, 8 ×12, 12 ×1 — `CATALOG.PUB` is the 12-page document).
+One PAGE chunk per page. **727** instances in the 130-document corpus (712 in the 128 `.PUB`
+files); 5…12 pages per document (5 pages ×87, 6 ×28, 7 ×1, 8 ×12, 9 ×1, 12 ×1 — `CATALOG.PUB`
+is the 12-page document). Every equation in this chapter was re-checked on all 727 instances
+with zero exceptions.
 
 All PAGE chunks have the same directory parent: the DOCUMENT chunk (712/712). [OBSERVED]
 
 ## 5.1 Size equation
 
 ```
-size == 0x24 + 2 * u16@+0x1A          (712/712, zero exceptions)
+size == 0x24 + 2 * u16@+0x1A          (727/727, zero exceptions)
 ```
 
 Sizes therefore range 36 (no children) to 116 (40 children). There is no padding after the id
@@ -19,11 +21,11 @@ array: the next chunk's offset is exactly `offset + size`. [OBSERVED]
 | Offset | Width | Field | Values over the 712 instances |
 |---|---|---|---|
 | 0x00 | u16 | typeMarker | `0x0014`, 712/712 |
-| 0x02 | u8 | descriptor A | `0x1A`, 712/712 |
-| 0x03 | u8 | descriptor B | `0x1A`, 712/712 |
+| 0x02 | u8 | descriptor A | `0x1A`, 727/727 |
+| 0x03 | u8 | descriptor B | `0x1A`, 727/727 |
 | 0x04 | u16 | `settingsChunkId` | `0` ×575, else the id of a `0x2C` chunk ×137 |
 | 0x06 | u16 | reserved (zero) | `0` ×712 |
-| 0x08 | u16 | `pageFlag08` | `0` ×707, `1` ×3, `2` ×2 — [UNKNOWN], §5.5 |
+| 0x08 | u16 | `pageFlag08` | `0` ×722, `1` ×3, `2` ×2 — [UNKNOWN], §5.5 |
 | 0x0A | u16 | reserved (zero) | `0` ×712 |
 | 0x0C | u16 | reserved (zero) | `0` ×712 |
 | 0x0E | u16 | reserved (zero) | `0` ×712 |
@@ -31,15 +33,15 @@ array: the next chunk's offset is exactly `offset + size`. [OBSERVED]
 | 0x12 | u16 | reserved (zero) | `0` ×712 |
 | 0x14 | u16 | reserved (zero) | `0` ×712 |
 | 0x16 | u16 | reserved (zero) | `0` ×712 |
-| 0x18 | u16 | `pageKind` | `0` ×669, `1` ×3, `2` ×20, `4` ×20 — §5.4 |
+| 0x18 | u16 | `pageKind` | `0` ×684, `1` ×3, `2` ×20, `4` ×20 — §5.4 |
 | 0x1A | u16 | `childCount` | 0…40 |
-| 0x1C | u16 | `childCount2` | always equals `+0x1A`, 712/712 |
-| 0x1E | u16 | `elementSize` | `2`, 712/712 |
+| 0x1C | u16 | `childCount2` | always equals `+0x1A`, 727/727 |
+| 0x1E | u16 | `elementSize` | `2`, 727/727 |
 | 0x20 | u16 | reserved (zero) | `0` ×712 |
 | 0x22 | u16 | reserved (zero) | `0` ×712 |
 | 0x24 | u16[childCount] | `zOrder` — child chunk ids | see §5.6 |
 
-The nineteen bytes `+0x06 … +0x17` are zero in all but five instances (the `+0x08`
+The nineteen bytes `+0x06 … +0x17` are zero in all but five instances (of 727) (the `+0x08`
 exception). They are documented as reserved because the record never carries data there in the
 Publisher 95 corpus. [OBSERVED]
 
@@ -56,7 +58,7 @@ used/allocated reading]
 
 | Value | Pages | Behaviour |
 |---|---|---|
-| 0 | 669 | normal page; the id list is its own children |
+| 0 | 684 | normal page; the id list is its own children |
 | 1 | 3 | behaves identically to 0 on this corpus — [UNKNOWN] (`CATALOG.PUB` 419 and 427, `RECIPT2.PUB` 260) |
 | 2 | 20 | the id list is the z-order merge of this page's own children with the children of the **next** page in the document page list (20/20 verified order-preserving interleavings) |
 | 4 | 20 | layer page: the id list is always empty (20/20) although the page still owns directory children; always sits immediately **after** a `pageKind == 2` page |

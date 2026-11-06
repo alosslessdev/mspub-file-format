@@ -13,7 +13,7 @@ unchanged.
 | `magic` | `Contents +0x00` | `0xACE8`, `0xACE7` | `ACE7` is the legacy form (chapter 02) |
 | `version_magic` | `Contents +0x02` | `0x22`, (`0x2C` = 2000+) | 95/97/98 all write `0x22` |
 | `format_version` | `Contents +0x04` | `200`, `300`, `710` | 300 = this family; loader also accepts the legacy pair 200/710 |
-| `header_tag` | `Contents +0x0C` | `125` (version 300), `704` (version 200) | required value per version |
+| `header_tag` | `Contents +0x0C` | `125` (P95, and one P97 file), `136` (P97/97-deluxe), `616` (P98), `704` (version 200) | accepted per build; see chapter 02 §2.2 |
 | directory record `flags` | directory | `0x1040 | bits`, 13 values | values below; bit meaning `[UNKNOWN]` (chapter 03) |
 
 Directory `flags` domain observed over all 493 documents (non-document records):
@@ -74,7 +74,7 @@ contains exactly one document with `7`, so that reading is `[INFERENCE]`.
 
 | Field | Location | Domain |
 |---|---|---|
-| `rotation` | shape `+0x04` | `0 … 3599`, 1/100 degree, counter-clockwise |
+| `rotation` | shape `+0x04` | `0 … 3599`, **1/10 degree** (0.1°), counter-clockwise, mod 3600 |
 | coordinates | shape `+0x06` | signed EMU; `left ≤ right`, `top ≤ bottom` |
 | record length `B` | chunk `+0x03` | per marker, see chapter 12 §12.2 |
 

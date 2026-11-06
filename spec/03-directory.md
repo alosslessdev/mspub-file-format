@@ -49,24 +49,24 @@ split of `D … min(chunkOffset)` over the whole corpus [OBSERVED]:
 
 | predicate | meaning |
 |---|---|
-| `unique` | the `u16` at `+0` is distinct for every record of a file (128/128 files) |
-| `asc` | the `u32` at `+4` is strictly ascending (128/128) |
-| `after` | that `u32` is greater than the end of the record array (128/128) |
-| `types` | `u16` read at that `u32` is one of the known chunk markers (10 640 probes) |
+| `unique` | the `u16` at `+0` is distinct for every record of a file (130/130 files) |
+| `asc` | the `u32` at `+4` is strictly ascending (130/130) |
+| `after` | that `u32` is greater than the end of the record array (130/130) |
+| `types` | `u16` read at that `u32` is one of the known chunk markers (10 732 probes) |
 | `fit` | `header + recordSize·count + 10 <= min(chunkOffset)` |
 
 | candidate | unique | asc | after | known types | verdict |
 |---|---|---|---|---|---|
-| hdr 2, rec 10 (old model) | 0/128 | 119/128 | 128/128 | **0/10 640** | refuted |
-| **hdr 4, rec 10** | **128/128** | **128/128** | **128/128** | **10 640/10 640** | **accepted** |
-| hdr 6, rec 10 | 0/128 | 0/128 | 128/128 | 0/10 640 | refuted |
-| hdr 2, rec 8 | 0/128 | 0/128 | 128/128 | 2 078/10 640 | refuted |
-| hdr 4, rec 8 | 0/128 | 0/128 | 128/128 | 2 186/10 640 | refuted |
-| hdr 2, rec 12 | 0/128 | 0/128 | 128/128 | 1 889/10 640 | refuted |
-| hdr 4, rec 12 | 0/128 | 0/128 | 0/128 (overruns) | 1 910/10 640 | refuted |
+| hdr 2, rec 10 (old model) | 0/130 | 0/130 | 130/130 | **0/10 732** | refuted |
+| **hdr 4, rec 10** | **130/130** | **130/130** | **130/130** | **10 732/10 732** | **accepted** |
+| hdr 6, rec 10 | 0/130 | 0/130 | 130/130 | 0/10 732 | refuted |
+| hdr 2, rec 8 | 0/130 | 0/130 | 130/130 | 2 119/10 732 | refuted |
+| hdr 4, rec 8 | 0/130 | 0/130 | 130/130 | 2 205/10 732 | refuted |
+| hdr 2, rec 12 | 0/130 | 0/130 | 0/130 (overruns) | 1 862/10 732 | refuted |
+| hdr 4, rec 12 | 0/130 | 0/130 | 0/130 (overruns) | 1 927/10 732 | refuted |
 
 Seeded with `hdr 4 / rec 10`, every record's `+4` field lands on a byte whose `u16` is a
-known chunk marker — 10 640 independent confirmations, i.e. the offset field really points
+known chunk marker — 10 732 independent confirmations, i.e. the offset field really points
 at the chunk and not merely at *something* plausible.
 
 ## 3.3 Binary evidence
@@ -356,8 +356,8 @@ flags, not a terminator.
 
 [OBSERVED] 36 distinct markers, and no other marker value occurs. Notes:
 
-* `0x0016` is a container: `0x001A`, `0x001C`, `0x002D`, `0x002E` are its four children, in
-  that order (chapter 06 §6.7).
+* `0x0016` is a container with four children, in slot order `0x001A`, `0x001C`, `0x002E`,
+  `0x002D` (chapter 11 §11.2).
 * `0x0003` owns all 489 `0x0022` records; `0x0031` owns all 390 `0x0032` records.
 * `0x0021` (image data) is owned by `0x0002` (image) and by `0x0027` (clip art).
 * `0x0036` occurs once in the whole 130-document corpus, inside `CHEKLIST.JSP`, under the

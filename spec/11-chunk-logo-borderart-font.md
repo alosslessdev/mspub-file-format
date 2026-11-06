@@ -36,6 +36,23 @@ the record is absent. Every non-zero value resolves to a chunk of the stated typ
 
 The three `0x0031` slots always name distinct chunks.
 
+### 11.1.1 Slots that change meaning between generations
+
+Measured over 487 documents (128 `p95`, 106 `p97`, 248 `p97deluxe`, 5 `p98`). Two slots in
+the block above and one below it do **not** keep their meaning, so a reader must dispatch
+on version rather than assume the P95 table: [OBSERVED]
+
+| Offset | P95 | P97 / P97D | P98 |
+|---|---|---|---|
+| `+0x4E` | `0x0016` story container, 128/128 | `0x0016`, 354/354 | `0`, 5/5 — the P98 publications have no story container at all |
+| `+0x6A` | **not an id**: the last-page index (`Npages − 1`) | `0x0031`, a **fourth** design set, 247/248 | `0x0045`, 5/5 |
+| `+0x6E` | not an id (constant `2`) | `0` | `0x0047` **PALETTE**, 5/5 |
+
+`+0x6E` is the palette reference introduced with Publisher 98 (chapter 09 §9.3) and is the
+one document-level singleton whose slot sits outside the `0x46…0x68` block. The Publisher 98
+DOCUMENT record is 72 bytes longer than the 95 one (chapter 04 §4.1), and these three slots
+account for the re-purposing that came with that growth.
+
 ## 11.2 Story container `0x0016`
 
 ```
@@ -115,14 +132,39 @@ chunk's own `A` byte, not on the marker alone. [OBSERVED]
 
 ## 11.5 Font table `0x001E`
 
-One per document. Entries are `u8 charset`, `u8 pitchFamily`, then the font name
-NUL-terminated with **no length byte**; contiguity `off[k+1] == off[k] + 2 + strlen + 1`
-holds for 1 575/1 575 entries. 1 575 entries, 144 distinct names in the Publisher 95
-corpus. [OBSERVED]
+One per document, referenced from `DOCUMENT+0x4A`. The record is an **offset-table
+container** whose widths change between generations, so a reader must detect the form by
+exact fit rather than by version. Three forms occur; all 487 font tables in the corpus
+parse under exactly one of them (487/487, no leftovers): [OBSERVED]
 
-* `charset` ∈ {0x00, 0x01, 0x02, 0xFF} = ANSI / DEFAULT / SYMBOL / family-only.
-* `pitchFamily` is a `LOGFONT.lfPitchAndFamily` byte: low 2 bits = pitch, bits 4–6 = family.
-  Bits 2–3 and bit 7 vary between documents for the same face and are **not** fields.
+| Form | Corpora | Counts | End offset | Offsets | Name encoding |
+|---|---|---|---|---|---|
+| V95 | all 128 `p95`, 1 `p97` | `u16` at `+0x04`, dup `+0x06` | `u16` at `+0x08` == `size − 0x0E` | `u16[count+1]` at `+0x0E`, relative to `+0x0E`, first = `2·(count+1)` | ASCII, NUL-terminated |
+| V32 | 105 `p97`, 248 `p97deluxe`, 5 `p98` | `u32` at `+0x04`, dup `+0x08` | `u32` at `+0x0C` == `size − 0x16` | `u32[count+1]` at `+0x16`, relative to `+0x16`, first = `4·(count+1)` | ASCII, NUL-terminated |
+| V32U | the same 5 `p98` documents | as V32 | as V32 | as V32 | **UTF-16LE**, NUL-terminated (2 bytes) |
+
+V95 also carries `u16 1` at `+0x0A` and `u16 0xFFFF` at `+0x0C`; V32 carries `u16 1` at
+`+0x10` and `u32 0xFFFFFFFF` at `+0x12`. Those two constants are the cheapest form
+discriminator after the length fields.
+
+Each entry is `{u8 charset, u8 lfPitchAndFamily, name}` — two prefix bytes, no length byte.
+Entry *k* runs from `base + off[k]` to `base + off[k+1]`, so contiguity is
+`off[k+1] == off[k] + 2 + len(name) + 1` (ASCII) or `+ 2` (UTF-16). Measured: 7 456 entries,
+270 distinct faces over the 487 documents.
+
+* `charset` ∈ {`0x00` ANSI, `0x01` DEFAULT, `0x02` SYMBOL, `0xFF`} in 95/97, matching the
+  face (`Symbol` and `Wingdings` are `0x02`).
+* `lfPitchAndFamily`: low 2 bits pitch, bits 4–6 family — `0x10` ROMAN for `Times New
+  Roman`, `0x20` SWISS for `Arial`, `0x30` MODERN for `Courier`, `0x40` SCRIPT for
+  `Comic Book`, `0x50` DECORATIVE for `Wingdings`. Bits 2–3 and bit 7 vary between
+  documents for the same face and are **not** fields.
+* **Publisher 98 caveat:** the first prefix byte is not the charset there — `Times New
+  Roman` carries `0xCC`, while `Symbol` still carries `0x02`. The 98 encoding of the pair is
+  `[UNKNOWN]`; only the 95/97 reading above is established.
+
+Correction to the earlier statement that the table has "no length byte" and a fixed
+stride: the stride is `2 + strlen + 1`, and the Publisher 97/98 tables widen every offset
+to 32 bits, which is why a fixed-stride walk fails on those corpora.
 
 ## 11.6 Line / border-art style table `0x001F`
 
@@ -138,11 +180,66 @@ files on the CD — a separate format, not part of the `.pub` specification.
 
 ## 11.7 Design / object sets `0x0031` and `0x0032`
 
-`0x0031` appears **three times per document**, always children of the DOCUMENT, and each is
-the parent of one `0x0032`. `0x0031` size rule: `30 + 8·n` (390/390); `0x0032` uses the
-offset-table container with `A = 8`. They are the Design Gallery / logo object sets: the
-three slots correspond to the three designs every Publisher 95 template is built on.
-[OBSERVED for structure; INFERENCE for the "design set" naming]
+`0x0031` is a direct child of the DOCUMENT and is referenced from `+0x48`, `+0x56` and
+`+0x58` (three per document in 487/487). A further 342 documents carry a **fourth**
+`0x0031` that has no `0x0032` child and is not referenced from those slots; 1 461 of the
+1 803 instances are the parent of exactly one `0x0032`. [OBSERVED]
+
+### `0x0031` payload
+
+```
++0x00  u16  0x0031
++0x02  u16  0x0808        stamp (fixed-part length B = 8)
++0x04  u16  0
++0x06  u16  child32Id     id of the 0x0032 child — 1461/1461 of the parents
++0x08  u16  count
++0x0A  u16  count         duplicate
++0x0C  u16  4             element size of each array
++0x0E  u16  arrayOffset   0 in the 30-byte form
++0x10  u32  0
++0x14  u32  0
++0x18  u16  0
++0x1A  u32  0x7FFFFFFF    sentinel
++0x1E  u32[count]         array A: chunk ids, last element 0x7FFFFFFF
++0x1E+4·count  u16[count]{id, value}   array B
+```
+
+`size == 30 + 8·count` (1 803/1 803), because the two arrays are `4·count` bytes each.
+Array A is a list of the design's object chunk ids; its last element is `0x7FFFFFFF` in all
+52 non-empty instances, and the ids it names are `0x000F` GROUP (1 187), `0x0005` RECT
+(153), `0x0001` (144), `0x0003` (97), `0x0002` (65), `0x0006` (60), `0x0007` (24),
+`0x0000` (16), `0x0004` (3). Array B is a list of `{u16 id, u16 value}` pairs over a
+different id set (all types occur); the value domain observed is 0…45 and its meaning is
+`[UNKNOWN]`. [OBSERVED for the framing and the id sets; UNKNOWN for B's semantics]
+
+Worked example — `p95/x/PAGEWIZ/CLASSIC.PUB` id `0x0105`, 446 bytes, count 52:
+
+```
++0x06 = 0x0106   the 0x0032 child
++0x1E = 0x010A 0x0115 0x0123 0x012B 0x013F … 0x0727 0x7FFFFFFF
+```
+
+### `0x0032` payload — the name table
+
+Same container family as §11.3, with the same two width forms:
+
+| Form | Counts | End offset | Offsets | Entries |
+|---|---|---|---|---|
+| L1 (u16) | `u16` at `+0x04`, dup `+0x06` | `u16` at `+0x08` == `size − 0x0E` | `u16[count+1]` at `+0x0E`, first = `2·(count+1)` | ASCII names |
+| L2 (u32) | `u32` at `+0x04`, dup `+0x08` | `u32` at `+0x0C` == `size − 0x16` | `u32[count+1]` at `+0x16`, first = `4·(count+1)` | ASCII names |
+
+Measured: 387 L1 (all in `p95` plus 3 `p97`), 1 070 L2 (all `p97`/`p97deluxe`/`p98`), and
+4 L2 instances in `p97/x/PAGEWIZ/JAZZY.PUB` and `PLAIN.PUB` whose offset array is
+non-monotone (`offs[0] = 5`) — an unexplained writer variant, `[UNKNOWN]`. 1 455 names
+total. The names are the design's object names (`Titles`, `Corner`, `Pinstripes`,
+`Table of Contents`, …), and `count` matches the `0x0031` count that owns them.
+
+Worked example — `p95/x/PAGEWIZ/CLASSIC.PUB` id `0x0106`, 589 bytes, count 52, L1:
+`+0x08 = 0x023F = 575 = 589 − 14`, offsets `0x6A, 0x70, 0x77, … 0x023F`, first string at
+`+0x0E + 0x6A = 0x78` = `"Title\0"`, next at `0x7E` = `"Column\0"`.
+
+The three slots correspond to the three design sets every Publisher template is built on;
+the naming is `[INFERENCE]`, the structure is `[OBSERVED]`.
 
 ## 11.8 Print setup records `0x0028`, `0x0029`, `0x0036`
 
@@ -174,14 +271,74 @@ the `0x20` tag byte is the literal-RGB tag of chapter 09, and the trailing flag 
 documents) declares 10-byte elements, but the corpus contains **no populated instance**, so
 its element layout is `[UNKNOWN]`.
 
-## 11.11 Open
+Population measured over all 487 documents: `0x0037` — 183 instances, count 0 in 129, 1 in
+48, 2 in 5, 5 in 1, always `size == 14 + 6·count`; `0x0038` — 127 instances, **all 14 bytes
+with count 0**. So the 10-byte element form exists in the writer but is never exercised by
+any shipped publication: closing it needs an authored document with a custom colour, not
+more corpus. [OBSERVED]
+
+## 11.11 Publisher-98-only document records
+
+Six markers occur in the Publisher 98 publications and nowhere else. Three are fully
+framed; three are not. All are direct children of the DOCUMENT. [OBSERVED, 5 documents]
+
+| Marker | Size | Layout |
+|---|---|---|
+| `0x0040` | 28, fixed | `u16 0x0202` at `+0x04`, zeros elsewhere; 4 instances, byte-identical |
+| `0x0041` | 40, fixed | **a page slot**, not a distinct feature — see below |
+| `0x0045` | 8, fixed | `u16 id of the 0x004C chunk` at `+0x04`, `u16 id of the 0x0052 chunk` at `+0x06`; 5/5 |
+| `0x0043` | 20 / 24 / 34 / 50 | framing `[UNKNOWN]` — no counted-array fit reproduces all four sizes |
+| `0x004C` | 40 / 52 / 118 / 604 | framing `[UNKNOWN]` — grows with the document, no counted fit |
+| `0x0052` | 40 / 74 / 550 / 3236 | framing `[UNKNOWN]` — grows with the document, no counted fit |
+
+### `0x0041` is a page slot
+
+`0x0041` is byte-identical to a 40-byte Publisher 98 PAGE (`0x0014`) except for two fields:
+
+```
+PAGE 0x14:  14 00 1e 1e 00 00 00 00 00 00 00 00 e0 d0 5c 01 e0 d0 5c 01 …
+0x41:       41 00 1e 1e 00 00 00 00 00 00 00 00 e0 d0 5c 01 e0 d0 5c 01 …
+                                            +0x22:  02 00 (PAGE)  /  08 00 (slot)
+```
+
+So `0x0041` is a page record whose `+0x22` slot kind is `8` instead of `2`. It carries the
+same 40-byte framing (`B = 0x1E`, count at `+0x1E`, duplicate `+0x20`, array at `+0x28`).
+The document's page count therefore includes `0x0041` records: `p98/x/MSPUB.PUB` has six
+`0x0014` and one `0x0041`, which is the seven pages that make the DOCUMENT size rule of
+chapter 04 §4.1 balance. [OBSERVED]
+
+The 40-byte PAGE form, for reference:
+
+| Offset | Width | Field | Observed |
+|---|---|---|---|
+| `+0x00` | u16 | marker | `0x0014` or `0x0041` |
+| `+0x02` | u16 | stamp | `0x1E1E` |
+| `+0x04` | u32 | 0 | — |
+| `+0x08` | u32 | 0 | — |
+| `+0x0C` | u32 | build stamp | `0x015CD0E0` in 4 of 5 publications, different in `ZMSPUB.PUB` |
+| `+0x10` | u32 | same as `+0x0C` | — |
+| `+0x14` | u32 | 0 | — |
+| `+0x18` | u32 | 0 | — |
+| `+0x1C` | u16 | 0 | — |
+| `+0x1E` | u16 | count | page-child count |
+| `+0x20` | u16 | count | duplicate |
+| `+0x22` | u16 | slot kind | `2` = page, `8` = page slot |
+| `+0x24` | u32 | 0 | — |
+| `+0x28` | u16[count] | child ids | — |
+
+## 11.12 Open
 
 | Item | Status | Experiment |
 |---|---|---|
 | `0x0028` six application codes | `[UNKNOWN]` | look the constants up as a table in `MSPUB.EXE` |
-| `0x001F` entry prefix width (2 vs 4) | `[UNKNOWN]` | save a document with one named border style and diff |
+| `0x001F` entry prefix width (2 vs 4) | `[UNKNOWN]` — entries start with a 2-byte value ∈ {1,2,4} followed by the NUL-terminated name, but 41/487 chunks do not fit the offset-table walk | save a document with one named border style and diff |
 | `0x001A` 14-byte element field order | `[UNKNOWN]` | save a document that adds one paragraph |
 | `0x0016 +0x04` style id | `[INFERENCE]` | resolve against `0x0026`/`0x001F` entry order |
 | `0x0036` fields | `[UNKNOWN]` | single instance; needs a document exercising print setup |
-| `0x0038` element layout | `[UNKNOWN]` | author a document that uses the 10-byte colour form |
-| `0x0031`/`0x0032` payloads | partially mapped | size rules exact; field semantics open |
+| `0x0038` element layout | `[UNKNOWN]` and **not reachable from the corpus** — 127/127 instances are the empty 14-byte form | author a document that uses the 10-byte colour form |
+| `0x0031` array B (`{u16 id, u16 value}` pairs) | `[UNKNOWN]` semantics; framing proven (1 803/1 803) | correlate the value with the object's page or z-order |
+| `0x0031` fourth instance (342 documents) | `[UNKNOWN]` role — no `0x0032` child, not referenced from `+0x48/+0x56/+0x58` | diff a document before and after adding a user design |
+| `0x0032` non-monotone offset variant | `[UNKNOWN]` — 4 instances in `p97/x/PAGEWIZ/{JAZZY,PLAIN}.PUB` with `offs[0] = 5` | diff a save that adds one object name |
+| Publisher 98 font prefix byte | `[UNKNOWN]` — `0xCC` for `Times New Roman` where 95/97 write `0x00` | needs a P98 document authored outside the CD samples |
+| `0x0043` / `0x004C` / `0x0052` framing | `[UNKNOWN]` — sizes 20/24/34/50, 40/52/118/604, 40/74/550/3236; no counted-array or u32-offset fit reproduces all instances of any of them | decode the reader in `MSPUB.M14`, or diff a P98 document after adding one text frame |
+| `0x004E` / `0x004F` / `0x0050` framing | `[UNKNOWN]` — 2 instances each (290 B, 207/306 B, 110/155 B), all under a `0x000A` shape in `CHEKLIST.JSP` | same |

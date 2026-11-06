@@ -122,6 +122,170 @@ def cmd_census(corpora):
                      " ..." if len(sizes[m]) > 6 else ""))
 
 
+# --------------------------------------------------------------------------- lattice
+
+def _cluster(vals, tol):
+    """Sorted distinct coordinates merged when they differ by <= tol EMU."""
+    out = []
+    for v in sorted(vals):
+        if not out or v - out[-1] > tol:
+            out.append(v)
+    return out
+
+
+def edge_lattice(boxes, tol=1000):
+    """Detect an (rows x cols) edge lattice in one parent bucket.
+
+    `boxes` are non-degenerate (w,h > 0) rectangles in absolute EMU.  Every
+    x0/x1 is clustered into a vertical grid line and every y0/y1 into a
+    horizontal one; the boxes must tile the full bounding rectangle exactly
+    once.  A box spanning >1 elementary cell is reported as a merged cell.
+    Returns a dict or None.
+    """
+    if len(boxes) < 4:
+        return None
+    xs = _cluster([b[0] for b in boxes] + [b[2] for b in boxes], tol)
+    ys = _cluster([b[1] for b in boxes] + [b[3] for b in boxes], tol)
+    if len(xs) < 3 or len(ys) < 3:
+        return None
+
+    def idx(seq, v):
+        for i, s in enumerate(seq):
+            if abs(s - v) <= tol:
+                return i
+        return None
+
+    cells = collections.Counter()
+    merged = 0
+    spans = []
+    for x0, y0, x1, y1 in boxes:
+        i, j = idx(xs, x0), idx(xs, x1)
+        k, l = idx(ys, y0), idx(ys, y1)
+        if None in (i, j, k, l) or i >= j or k >= l:
+            return None
+        if (j - i) * (l - k) > 1:
+            merged += 1
+        for a in range(i, j):
+            for c in range(k, l):
+                cells[(a, c)] += 1
+        spans.append((i, j, k, l))
+    ncols, nrows = len(xs) - 1, len(ys) - 1
+    if nrows < 2 or ncols < 2:
+        return None
+    if len(cells) != nrows * ncols or any(n != 1 for n in cells.values()):
+        return None
+    return dict(rows=nrows, cols=ncols, xs=xs, ys=ys, merged=merged,
+                boxes=boxes, spans=spans)
+
+
+def _raw_bbox(chunk):
+    """s32 quad at +6, negative coordinates allowed (off-page geometry)."""
+    d = chunk.data
+    if len(d) < 22:
+        return None
+    x0, y0, x1, y1 = struct.unpack_from("<iiii", d, 6)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return (x0, y0, x1, y1)
+
+
+def cell_lattice(boxes, tol=1000):
+    """Detect an (rows x cols) lattice of cell rectangles under one parent.
+
+    Unlike `edge_lattice` this tolerates gutters between cells: a lattice is the
+    full Cartesian product of distinct (x0,x1) column intervals and distinct
+    (y0,y1) row intervals.  Requires >=2 columns and >=2 rows.
+    Returns a dict or None.
+    """
+    if len(boxes) < 4:
+        return None
+
+    def cluster(vals):
+        out = []
+        for v in sorted(vals):
+            if not out or v - out[-1] > tol:
+                out.append(v)
+        return out
+
+    def nearest(seq, v):
+        return min(seq, key=lambda s: abs(s - v))
+
+    xa = cluster([b[0] for b in boxes])
+    xb = cluster([b[2] for b in boxes])
+    ya = cluster([b[1] for b in boxes])
+    yb = cluster([b[3] for b in boxes])
+    cols, rows, seen = [], [], collections.Counter()
+    boxmap = {}
+    for b in boxes:
+        ck = (nearest(xa, b[0]), nearest(xb, b[2]))
+        rk = (nearest(ya, b[1]), nearest(yb, b[3]))
+        if ck not in cols:
+            cols.append(ck)
+        if rk not in rows:
+            rows.append(rk)
+        seen[(ck, rk)] += 1
+        boxmap[(ck, rk)] = b
+    if len(cols) < 2 or len(rows) < 2:
+        return None
+    if any(n != 1 for n in seen.values()):
+        return None
+    if len(seen) != len(cols) * len(rows):
+        return None
+    return dict(rows=len(rows), cols=len(cols), colkeys=cols, rowkeys=rows,
+                boxes=boxes)
+
+
+def cmd_lattice(corpora, tol=1000):
+    """Detect complete cell lattices of RECT/LINE shapes under one parent."""
+    ndocs = 0
+    docs_hit = collections.Counter()
+    buckets_hit = []
+    hist = collections.Counter()
+    hist_by_parent = collections.Counter()
+    for corp, f, doc in load_corpora(corpora):
+        ndocs += 1
+        byid = {c.id: c for c in doc.chunks}
+        buckets = collections.defaultdict(list)
+        for c in doc.chunks:
+            if c.type_marker not in (0x04, 0x05):
+                continue
+            b = _raw_bbox(c)
+            if not b:
+                continue  # degenerate lines are borders, not cells
+            buckets[c.parent].append((c, b))
+        for parent, lst in buckets.items():
+            g = cell_lattice([b for _, b in lst], tol)
+            if not g:
+                continue
+            ptype = byid[parent].type_marker if parent in byid else None
+            hist[(g["rows"], g["cols"])] += 1
+            hist_by_parent[ptype] += 1
+            if g["rows"] * g["cols"] >= 4:
+                buckets_hit.append((corp, f, parent, ptype, g, lst))
+                docs_hit[f] += 1
+    print("documents scanned: %d   documents with a lattice: %d   lattices: %d"
+          % (ndocs, len(docs_hit), len(buckets_hit)))
+    print("parent type of lattice buckets: %s"
+          % {("0x%02x" % k if k is not None else "MISSING"): v
+             for k, v in sorted(hist_by_parent.items(), key=lambda t: -t[1])})
+    print()
+    print("(rows, cols) histogram over lattice buckets:")
+    for (r, c), n in sorted(hist.items(), key=lambda t: (-t[0][0] * t[0][1], t[0])):
+        if r * c >= 4:
+            print("  %2d x %-2d  %4d" % (r, c, n))
+    print()
+    print("per bucket:")
+    for corp, f, parent, ptype, g, lst in sorted(
+            buckets_hit, key=lambda t: -(t[4]["rows"] * t[4]["cols"])):
+        kinds = collections.Counter(c.type_marker for c, _ in lst)
+        print("  %-34s parent=%#06x type=%s %2dx%-2d markers=%s"
+              % (os.path.relpath(f, ROOT).replace("\\", "/"), parent,
+                 "0x%02x" % ptype if ptype is not None else "MISSING",
+                 g["rows"], g["cols"],
+                 ["0x%02x" % m for m in sorted(kinds)]))
+    return buckets_hit
+
+
 # --------------------------------------------------------------------------- grids
 
 def row_band_grid(boxes):
@@ -419,6 +583,120 @@ def cmd_libmspub(corpora):
           "framed blocks; neither exists in this family.")
 
 
+# --------------------------------------------------------------------------- text tables
+
+STORY_MARKER = 0x001D
+
+
+def text_section(doc):
+    """Decode the Contents text section header (see notes/p98/slices/tables.md).
+
+    Returns dict(start, dir, text_start, text_end, stories=[...]) where each
+    story is dict(off, ordinal, start, end) and start/end are Contents offsets.
+    """
+    d = doc.contents
+    S = struct.unpack_from("<I", d, 0x12)[0]
+    if S + 0x1E > len(d):
+        return None
+    magic = struct.unpack_from("<I", d, S)[0]
+    if magic != 0x002EF0DE:
+        return None
+    dir_off = struct.unpack_from("<I", d, S + 0x0A)[0]
+    text_start = struct.unpack_from("<I", d, S + 0x0E)[0]
+    text_end = struct.unpack_from("<I", d, S + 0x12)[0]
+    recs = []
+    p = S + 0x1E
+    offs = []
+    while p + 4 <= S + 0x40 and p < dir_off:
+        off = struct.unpack_from("<I", d, p)[0]
+        p += 4
+        if off == 0:
+            break
+        if off + 4 > len(d) or off >= dir_off:
+            continue
+        if struct.unpack_from("<H", d, off)[0] == STORY_MARKER:
+            offs.append(off)
+    # A story record's size comes from the next record (the text itself precedes
+    # them).  Populated records are 0x20 bytes: +0x16 start, +0x1A end.  Empty
+    # ones are 0x1A bytes and carry only the start (both equal text_start).
+    for i, off in enumerate(offs):
+        nxt = offs[i + 1] if i + 1 < len(offs) else dir_off
+        size = nxt - off
+        start = struct.unpack_from("<I", d, off + 0x16)[0]
+        end = struct.unpack_from("<I", d, off + 0x1A)[0] if size >= 0x1E else start
+        recs.append(dict(off=off, size=size,
+                         ordinal=struct.unpack_from("<H", d, off + 4)[0],
+                         start=start, end=end))
+    return dict(start=S, dir=dir_off, text_start=text_start, text_end=text_end,
+                stories=recs)
+
+
+def cmd_story(path, full=False):
+    doc = pubcore.parse_contents(path)
+    ts = text_section(doc)
+    print("%s ver=%02x %d chunks" % (path, doc.version_magic, len(doc.chunks)))
+    if not ts:
+        print("  no 0x002EF0DE text section")
+        return
+    print("  text section @%#x  dir @%#x  text [%#x,%#x) len=%d"
+          % (ts["start"], ts["dir"], ts["text_start"], ts["text_end"],
+             ts["text_end"] - ts["text_start"]))
+    for s in ts["stories"]:
+        print("  story rec @%#x ordinal=%d text [%#x,%#x) len=%d"
+              % (s["off"], s["ordinal"], s["start"], s["end"], s["end"] - s["start"]))
+        if full:
+            seg = doc.contents[s["start"]:s["end"]]
+            print("    %r" % seg)
+
+
+def columns_from_tabstops(doc, min_cols=2):
+    """Column count = leading run of 0xFFFF-terminated 14-byte records in a 0x01 chunk."""
+    best = 0
+    for c in doc.chunks:
+        if c.type_marker != 0x01 or c.size < 120:
+            continue
+        n = (c.size - 106) // 14
+        run = 0
+        for i in range(n):
+            d = struct.unpack_from("<H", c.data, 106 + i * 14 + 12)[0]
+            if d == 0xFFFF:
+                run += 1
+            else:
+                break
+        best = max(best, run)
+    return best if best >= min_cols else None
+
+
+def cmd_texttab(path, cols=None):
+    """Recover tab-separated tables (0x0C frame blocks, 0x0F cells) from the text section."""
+    doc = pubcore.parse_contents(path)
+    ts = text_section(doc)
+    if not ts:
+        print("no text section in %s" % path)
+        return
+    seg = doc.contents[ts["text_start"]:ts["text_end"]]
+    cols = cols or columns_from_tabstops(doc) or 1
+    print("%s  text [%#x,%#x)  %d bytes  story_recs=%d  columns=%d"
+          % (path, ts["text_start"], ts["text_end"], len(seg),
+             len(ts["stories"]), cols))
+    for bi, blk in enumerate(seg.split(b"\x0c")):
+        cells = [c.rstrip(b"\r\n") for c in blk.split(b"\x0f")]
+        if cells and cells[-1] == b"":
+            cells.pop()  # the separator after the last cell, not a cell
+        if not cells:
+            continue
+        print(" block %d: %d bytes, %d cells, %d full rows%s"
+              % (bi, len(blk), len(cells), len(cells) // cols,
+                 "" if len(cells) % cols == 0 else " + %d cells" % (len(cells) % cols)))
+        if len(cells) < 2:
+            continue
+        for r in range(0, len(cells) - len(cells) % cols if len(cells) % cols else len(cells), cols):
+            row = cells[r:r + cols]
+            print("   r%-2d | %s" % (r // cols,
+                                     " | ".join(c.decode("latin-1").replace("\r\n", "/").ljust(14)
+                                                for c in row)))
+
+
 # --------------------------------------------------------------------------- dump
 
 def cmd_dump(path, parent):
@@ -445,9 +723,12 @@ def cmd_dump(path, parent):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["census", "grids", "lattices", "libmspub", "dump"])
+    ap.add_argument("cmd", choices=["census", "grids", "lattices", "lattice",
+                                    "libmspub", "story", "texttab", "dump"])
     ap.add_argument("targets", nargs="+")
     ap.add_argument("--min-cells", type=int, default=4)
+    ap.add_argument("--cols", type=int, default=0)
+    ap.add_argument("--full", action="store_true")
     a = ap.parse_args()
     if a.cmd == "census":
         cmd_census(a.targets)
@@ -455,6 +736,12 @@ def main():
         cmd_grids(a.targets, a.min_cells)
     elif a.cmd == "lattices":
         cmd_lattices(a.targets, a.min_cells)
+    elif a.cmd == "lattice":
+        cmd_lattice(a.targets)
+    elif a.cmd == "story":
+        cmd_story(a.targets[0], a.full)
+    elif a.cmd == "texttab":
+        cmd_texttab(a.targets[0], a.cols or None)
     elif a.cmd == "libmspub":
         cmd_libmspub(a.targets)
     else:

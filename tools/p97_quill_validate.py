@@ -248,11 +248,43 @@ def check_mcld(blob, errors, where):
 # ---------------------------------------------------------------- per-file
 
 
+def check_text97(path, blob, doc, errors):
+    """Publisher 95/97: the text pool pointer triple inside the Contents header."""
+    diroff = doc.trailer_offset
+    cand = [o for o in range(0x22, min(len(blob) - 12, 0x600), 2)
+            if struct.unpack_from("<I", blob, o)[0] == diroff]
+    good = None
+    for o in cand:
+        a, z = struct.unpack_from("<II", blob, o + 4)
+        if 0x22 <= a <= z <= len(blob):
+            good = (o, a, z)
+            break
+    if good is None:
+        errors.append("no text-pool triple (diroff=%#x)" % diroff)
+        return None
+    o, a, z = good
+    seg = blob[a:z]
+    # Invariants measured over 114 documents: the pool is NUL-free and every CR is
+    # followed by an LF (the counts are equal in every file).
+    if 0 in seg:
+        errors.append("text pool %#x..%#x contains a NUL byte" % (a, z))
+    if seg.count(b"\n") > seg.count(b"\r"):
+        errors.append("text pool %#x..%#x: %d LF vs %d CR (LF must be part of CRLF)"
+                      % (a, z, seg.count(b"\n"), seg.count(b"\r")))
+    return o, a, z
+
+
 def check_file(path):
     errors = []
     blob = read_quill(path)
     if blob is None:
-        return ["no Quill stream"]
+        try:
+            import pubcore
+            doc = pubcore.parse_contents(path)
+        except Exception as exc:            # no Contents either
+            return ["no Quill stream and no Contents: %s" % exc]
+        triple = check_text97(path, doc.contents, doc, errors)
+        return errors, ("text97 %#x..%#x" % (triple[1], triple[2])) if triple else "text97 ?"
     recs = parse_directory(blob, errors)
     names = [r[0] for r in recs]
     by_name = {}
@@ -321,14 +353,25 @@ def check_file(path):
 def main(argv):
     files = argv[1:] or DEFAULT_FILES
     if len(files) == 1 and any(c in files[0] for c in "*?"):
-        files = sorted(glob.glob(files[0]))
+        pat = files[0]
+        files = sorted(glob.glob(pat))
+        if "**" not in pat:                     # also sweep subdirectories
+            files += sorted(glob.glob(pat.replace("/*", "/**/*"), recursive=True))
+            files = sorted(set(files))
     bad = 0
     for f in files:
         res = check_file(f)
         if isinstance(res, list):
-            print("%-24s NO QUILL STREAM" % f)
+            print("%-24s FAIL %s" % (f, res[0]))
+            bad += 1
             continue
         errors, names = res
+        if isinstance(names, str):          # Publisher 95/97 text-pool mode
+            print("%-24s %s %s" % (f, "ok  " if not errors else "FAIL", names))
+            for e in errors:
+                print("    " + e)
+            bad += bool(errors)
+            continue
         if errors:
             bad += 1
             print("%-24s FAIL (%d)" % (f, len(errors)))
