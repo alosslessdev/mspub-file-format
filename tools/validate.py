@@ -18,13 +18,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pubcore
 import pubread
 
+# Writer-side fixed record length byte at +0x03. Publisher 98 grew the IMAGE record
+# by 24 bytes (116 -> 140), so the marker has a version-dependent value set.
+RECORD_LEN_B = {0x00: {92}, 0x01: {96}, 0x02: {116, 140}, 0x03: {116}, 0x04: {59},
+                0x05: {62}, 0x06: {53}, 0x07: {41}, 0x16: {16}}
+RECORD_BASE = {0x00: 102, 0x01: 106, 0x02: 126, 0x03: 126, 0x04: 59, 0x05: 62,
+               0x06: 53, 0x07: 41, 0x16: 16}
+
 CHECKS = [
     "cfb_parse", "contents_magic", "declared_length", "format_version_300",
     "directory_offsets_ascending", "directory_ids_unique", "directory_parents_resolve",
     "chunk_extents_cover_stream", "single_document_chunk", "document_size_rule",
     "page_size_equation", "page_children_exist", "page_child_count_pair",
     "shape_bbox_ordered", "shape_bbox_magnitude", "image_data_length_prefix", "image_data_wmf",
-    "record_0x22_is_18", "quill_list_terminates",
+    "record_length_byte", "record_min_size", "record_0x22_is_18", "quill_list_terminates",
 ]
 
 
@@ -124,9 +131,20 @@ def check_file(path: str, stats: collections.Counter, failures: list):
                 fail("image_data_length_prefix", "id=%#06x %d != %d" % (c.id, n, c.size - 8))
             if c.data[8:12] != b"\x01\x00\x09\x00":
                 fail("image_data_wmf", "id=%#06x sig=%s" % (c.id, c.data[8:12].hex()))
+        elif 0x00 <= c.type_marker <= 0x07 or c.type_marker == 0x16:
+            # B at +0x03 is the writer-side fixed record length (it does not grow with the
+            # optional counted tail): 92/96/116/116 for 0x00..0x03, 59/62/53/41/16 for the rest.
+            expected_b = RECORD_LEN_B.get(c.type_marker)
+            base = RECORD_BASE.get(c.type_marker, 0)
+            if expected_b and c.data[3] not in expected_b:
+                fail("record_length_byte", "id=%#06x type=%#06x B=%d expected=%s"
+                     % (c.id, c.type_marker, c.data[3], sorted(expected_b)))
+            if c.size < base:
+                fail("record_min_size", "id=%#06x type=%#06x size=%d base=%d"
+                     % (c.id, c.type_marker, c.size, base))
         elif c.type_marker == 0x22:
             if c.size != 18:
-                fail("record_0x22_is_18", "id=%#06x size=%d" % (c.id, c.size))
+                fail("record_length_byte", "record_min_size", "record_0x22_is_18", "id=%#06x size=%d" % (c.id, c.size))
     try:
         blob = pubcore.read_stream(path, "Quill/QuillSub/CONTENTS")
     except Exception:

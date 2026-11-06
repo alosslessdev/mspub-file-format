@@ -115,7 +115,7 @@ class Reader:
         data = c.data
         s = {"id": c.id, "type_name": c.type_name, "size": c.size}
         if len(data) >= 0x16:
-            s["rotation_tenths"] = struct.unpack_from("<H", data, 4)[0]
+            s["rotation_cdeg"] = struct.unpack_from("<H", data, 4)[0]  # 1/100 degree
             s["x0"], s["y0"], s["x1"], s["y1"] = struct.unpack_from("<iiii", data, 6)
             s["box_in"] = [round(v / EMU_PER_INCH, 3) for v in
                            (s["x0"], s["y0"], s["x1"], s["y1"])]
