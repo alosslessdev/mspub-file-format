@@ -136,7 +136,10 @@ Whole-corpus confirmation (width/height pairs > count):
 
 Every pair resolves to a clean physical paper/banner size in EMU.
 
-## 5. Chunk type markers observed (P95 corpus, 10640 chunks)
+## 5. Chunk type markers observed (P95 corpus, 10640 chunks over the 128 `.PUB` files)
+
+The 130-document census (10 732 chunks, 36 markers, including `0x0036`) is chapter 03 §3.9;
+that table supersedes this one for counts.
 
 | Marker | Count | libmspub name |
 |---|---|---|

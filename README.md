@@ -6,9 +6,11 @@ documents they write. Published by [alosslessdev](https://github.com/alosslessde
 
 ## What is here
 
-* [`spec/`](spec/) — the specification, one chapter per subsystem, with a
+* [`spec/`](spec/) — the specification, 20 chapters, one per subsystem, with a
   provenance tag on every non-trivial claim (`[OBSERVED]`, `[INFERENCE]`,
-  `[UNKNOWN]`).
+  `[UNKNOWN]`). Chapter 19 states exactly which structural rules are enforced
+  over the whole corpus; chapter 13 and the "Open" sections list what is not yet
+  decoded.
 * [`notes/EVIDENCE.md`](notes/EVIDENCE.md) — the shared, cross-version evidence
   ledger: facts measured once and reused by every chapter.
 * [`notes/`](notes/) — per-version gap ledgers, corpus statistics and raw
