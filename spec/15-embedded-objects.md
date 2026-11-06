@@ -155,7 +155,7 @@ mechanism survived testing. [OBSERVED]
 +0x08  u16 "MO"     4D 4F
 +0x0A  u16 N        object number -> Objects/Object N
 +0x0C  3 bytes 0
-+0x0F  u8  0x00 (1201) or 0x80 (933)   unidentified flag
++0x0F  u8  0x00 (1201) or 0x80 (933)   per-reference state, see 15.8.1
 +0x10  u16 0
 ```
 
@@ -185,10 +185,29 @@ opposite; the assumption was never measured and the measurement refutes it.) [OB
 Nesting depth is one level in every file (no `Objects` inside an `Object N`); nothing in the
 format forbids deeper nesting. `[OBSERVED for depth; INFERENCE for the general case]`
 
+### 15.8.1 The `+0x0F` flag
+
+Domain `{0x00, 0x80}` (1 201 / 933 over 2 134 references). Tested against every object property
+available and **no correlation holds**:
+
+| Hypothesis | Result |
+|---|---|
+| object class / ProgID | rejected — `MSWordArt.2` occurs 644× with `0x00` and 573× with `0x80` |
+| packaged (`Ole10Native`) vs nested document | rejected — both kinds occur under both values |
+| owner shape marker | rejected — every `0x0022` parent is a `0x0003` shape, both values occur |
+| `CompObj` length (class variant) | rejected — all four lengths occur under both values |
+| preview size (icon vs content) | rejected — `>2k` previews occur 1 145× at `0x00` and 409× at `0x80` |
+
+So it is a per-reference state, not a class discriminator. `[OBSERVED]` The two readings still
+consistent with the data are "object needs updating" and "display as icon"; the discriminating
+experiment is to save one document twice, once with an object inserted as an icon and once as
+content, and diff the byte. A reader must preserve it.
+
 ## 15.10 Open
 
-* `0x0022` `+0x0F` flag (`0x00` vs `0x80`) — unidentified; the two values split the corpus
-  1201/933.
-* `CompObj` tail variants (16 vs 24 bytes) — only WordArt objects use the 24-byte tail.
-* `\x03Internal` `x`/`y` bit — no correlation found.
-* `OlePres000 +0x14` (2 / 32 / 16) — unidentified picture-type field.
+* `0x0022` `+0x0F` flag — domain and negative correlations published in §15.8.1; the two
+  candidate readings are still undistinguished.
+* `\x03Internal` `x`/`y` bit — variant A/C splits by nothing measured (class, size, owner,
+  ordinal). Two readings remain: a saved-state flag or an allocation lane.
+* `OlePres000 +0x14` (2 / 32 / 16) — measured against the `0x0022` flag and object class with no
+  correlation; `[UNKNOWN]` picture-type field.
