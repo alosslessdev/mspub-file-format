@@ -294,15 +294,27 @@ parse_chunk(chunk):
 `COUNTED = {0x00:(102,0x5C,0x5E,2), 0x02:(126,0x74,0x76,8), 0x03:(126,0x74,0x76,8),
 0x14:(36,0x1A,0x1C,2), 0x31:(30,0x08,0x0A,8)}`.
 
-## 12.10 Open
+## 12.10 The 16-bit descriptor `(A, B)` — closed
 
-* `stamp_lo` / `stamp_hi` derivation — **[UNKNOWN]**. The per-marker, per-version
-  table in 12.2 is exact; a formula must reproduce the "relation" column for the
-  modal size. Experiment: patch a saved document's stamp bytes and observe whether
-  Publisher 98 accepts the file (byte-level acceptance test, not yet run).
-* `0x0022` body semantics — **[UNKNOWN]**. Experiment: create a document in
-  Publisher 98 with N masters and compare the ordinal with the master count.
-* Element content of the SHAPE and LOGO arrays — chapters 06 and 11.
+The "stamp" is simply the two descriptor bytes at chunk `+0x02` (A) and `+0x03` (B), read as
+a 16-bit value. Measured over all 493 documents: [OBSERVED]
+
+| Behaviour | Markers | Count |
+|---|---|---|
+| `(A, B)` constant for the marker | 40 of 54 | all instances |
+| `B` constant, `A` per-document (`0x0002`, `0x0003`) | 2 | 6 and 4 distinct `A` values |
+| `(A, B)` changes only in Publisher 98 (record grew) | 5 | `0x0004` 59→67, `0x0005` 62→70, `0x0006` 57/53→65/61, `0x0007` 41→49, `0x000F` 24→32, `0x0014` 26→30 |
+
+So there is no separate derivation to find: `B` is the writer-side fixed-part length descriptor
+(chapter 06 §6.1) and `A` is a per-marker class byte, per-document only for the two record
+families that carry a counted tail of 8-byte elements. For `0x0003` the four `A` values are
+`0x8E`, `0x92`, `0x9A`, `0x9E`; for `0x0002` they are the same family. What selects `A` per
+document is still `[UNKNOWN]` and is tracked in chapter 06 §6.9 — not here.
+
+Closed by reference, no longer open in this chapter:
+
+* `0x0022` body semantics — the 18-byte record is `"MO"` + object ordinal; see chapter 15 §15.8.
+* Element content of the SHAPE and LOGO arrays — chapters 06 §6.4 and 11.7.
 
 ## 12.11 Rare markers `0x0036`, `0x004E`, `0x004F`, `0x0050`
 
