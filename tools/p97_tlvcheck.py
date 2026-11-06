@@ -67,14 +67,15 @@ KNOWN = set(BLOCK_LEN)
 
 
 class Walk:
-    __slots__ = ("blocks", "consumed", "known", "var", "bad")
+    __slots__ = ("blocks", "consumed", "known", "var", "bad", "zero")
 
-    def __init__(self, blocks, consumed, known, var, bad):
+    def __init__(self, blocks, consumed, known, var, bad, zero=0):
         self.blocks = blocks
         self.consumed = consumed   # bytes consumed from the walk start
         self.known = known         # blocks whose type is in BLOCK_LEN
         self.var = var             # variable-length blocks seen
         self.bad = bad             # True if a block ran past the payload end
+        self.zero = zero           # blocks with a zero-byte payload
 
 
 def walk(payload: bytes, start: int, unknown_len0: bool = False) -> Walk:
@@ -88,28 +89,30 @@ def walk(payload: bytes, start: int, unknown_len0: bool = False) -> Walk:
     """
     rel = start
     n = len(payload)
-    blocks = known = var = 0
+    blocks = known = var = zero = 0
     while rel + 2 <= n:
         btype = payload[rel + 1]
         blocks += 1
         if btype in KNOWN:
             known += 1
         elif not unknown_len0:
-            return Walk(blocks, rel - start, known, var, True)
+            return Walk(blocks, rel - start, known, var, True, zero)
         ln = BLOCK_LEN.get(btype, 0)
+        if ln == 0:
+            zero += 1
         if ln is None:
             var += 1
             if rel + 6 > n:
-                return Walk(blocks, rel - start, known, var, True)
+                return Walk(blocks, rel - start, known, var, True, zero)
             tot = struct.unpack_from("<I", payload, rel + 2)[0]
             if tot < 4 or rel + 2 + tot > n:
-                return Walk(blocks, rel - start, known, var, True)
+                return Walk(blocks, rel - start, known, var, True, zero)
             rel += 2 + tot
         else:
             if rel + 2 + ln > n:
-                return Walk(blocks, rel - start, known, var, True)
+                return Walk(blocks, rel - start, known, var, True, zero)
             rel += 2 + ln
-    return Walk(blocks, rel - start, known, var, rel != n)
+    return Walk(blocks, rel - start, known, var, rel != n, zero)
 
 
 def check_chunk(payload: bytes, max_prologue: int, min_blocks: int,
@@ -173,8 +176,9 @@ def main() -> int:
           % (files, len(per_type), a.max_prologue, a.min_blocks,
              "len0" if a.unknown_len0 else "fail"))
     print()
-    print("%-8s %7s %8s %6s %9s %8s %6s %10s"
-          % ("marker", "      n", "  exact", "  frac", " prologue", "blocks", " var", "  null"))
+    print("%-8s %7s %8s %6s %9s %8s %6s %7s %10s"
+          % ("marker", "      n", "  exact", "  frac", " prologue", "blocks", " var",
+             " pl%", "  null"))
     rows = []
     rng = random.Random(0x97)
     for tm in sorted(per_type):
@@ -182,7 +186,7 @@ def main() -> int:
         n = len(chunks)
         exact = 0
         best_p = collections.Counter()
-        nblocks = var = 0
+        nblocks = var = nzero = 0
         for c in chunks:
             p, w = check_chunk(c.data, a.max_prologue, a.min_blocks, a.unknown_len0)
             if p is not None:
@@ -190,6 +194,7 @@ def main() -> int:
                 best_p[p] += 1
                 nblocks += w.blocks
                 var += w.var
+                nzero += w.zero
         # null model: same payload lengths, uniformly random bytes
         null = 0.0
         if a.null_trials:
@@ -203,12 +208,13 @@ def main() -> int:
                     tried += 1
             null = 100.0 * hit / tried if tried else 0.0
         top_p = best_p.most_common(1)[0][0] if best_p else -1
-        rows.append((tm, n, exact, exact / n, top_p, nblocks, var, null))
+        pl = 100.0 * (nblocks - nzero) / nblocks if nblocks else 0.0
+        rows.append((tm, n, exact, exact / n, top_p, nblocks, var, pl, null))
     rows.sort(key=lambda r: (-r[3], -r[1]))
-    for tm, n, exact, frac, top_p, nblocks, var, null in rows:
-        print("%#08x %7d %8d %5.1f%% %9s %8d %6d %9.1f%%"
+    for tm, n, exact, frac, top_p, nblocks, var, pl, null in rows:
+        print("%#08x %7d %8d %5.1f%% %9s %8d %6d %6.1f%% %9.1f%%"
               % (tm, n, exact, 100 * frac, ("+%d" % top_p) if top_p >= 0 else "-",
-                 nblocks, var, null))
+                 nblocks, var, pl, null))
     print()
     tot = sum(r[1] for r in rows)
     tot_exact = sum(r[2] for r in rows)

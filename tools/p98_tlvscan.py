@@ -318,18 +318,20 @@ def print_report(stat, abort, chunk_n, dp_any, dp_sub, dp_sub_events, docs, fail
                  dp_any[tm], dp_sub[tm], dp_sub_events[tm], verdict))
 
     print()
-    utypes = collections.defaultdict(lambda: [0, set()])
+    utypes = collections.defaultdict(lambda: {"n": 0, "tms": set(), "sample": None})
     for (tm, t), a in abort.items():
-        utypes[t][0] += a["n"]
-        utypes[t][1].add(tm)
+        u = utypes[t]
+        u["n"] += a["n"]
+        u["tms"].add(tm)
+        if u["sample"] is None:
+            u["sample"] = a["sample"]
     print("unknown-type aborts: %d events, %d distinct type values, %d (chunk_type,type) pairs"
           % (sum(a["n"] for a in abort.values()), len(utypes), len(abort)))
     for t in sorted(utypes):
-        n, tms = utypes[t]
-        ex = abort.get((next(iter(tms)), t))
+        u = utypes[t]
         print("  type 0x%02x  events=%-7d chunk_types=%-3d sample=%s@0x%x"
-              % (t, n, len(tms), os.path.relpath(ex["sample"][0], ROOT), ex["sample"][1])
-              if ex else "  type 0x%02x events=%d" % (t, n))
+              % (t, u["n"], len(u["tms"]),
+                 os.path.relpath(u["sample"][0], ROOT), u["sample"][1]))
 
 
 # --------------------------------------------------------------------------- #
