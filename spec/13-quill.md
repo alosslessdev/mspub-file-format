@@ -287,9 +287,11 @@ strings live inside the per-entry descriptor streams.
 +0x08  u32  ids[count]   ascending
 ```
 
-`[OBSERVED]` size identity `len == 8 + 4*count` in 5/5 chunks: `MSPUB.PUB` 8 B / 0 entries;
-`INFOSHET.JSP` 12 B / 1; `CHEKLIST.JSP` 68 B / 15 (high-water 31); `CLRCHK.JSP` 384 B / 94
-(high-water 127). Values are dense ascending style ids; `CHEKLIST.JSP` = `1…14` plus `0x0F`.
+`[OBSERVED]` size identity `len == 8 + 4*count` in 5/5 chunks: `MSPUB.PUB` 8 B / 0 entries
+(high-water 0); `INFOSHET.JSP` 12 B / 1 (high-water 6, ids `{1}`); `CHEKLIST.JSP` 68 B / 15
+(high-water 31, ids `1…14` plus `17`); `CLRCHK.JSP` 384 B / 94 (high-water 127, ids `5…123`
+with 25 holes). Values are ascending and unique — a used-style set, not a dense range, and
+not the text-object ordinals (§13.13).
 
 ## 13.10 Element arrays — `BTEP`, `BTEC`, `TOKN`, `TCD `
 
@@ -423,8 +425,8 @@ What is now **excluded**, with counts over the three text-bearing documents:
 | candidate | result |
 |---|---|
 | `FDPP`/`FDPC` chunk ids are shape ids | no — they run 0…5 / 0…2 while the `Contents` shape chunks are ids `0x100`+, 3/3 docs |
-| `SYID` ids are shape chunk ids | no — `SYID` values are ≤ `0x7F` (`CHEKLIST.JSP` max 17, `CLRCHK.JSP` max 127) and no `Contents` chunk id is below `0x100` |
-| `SYID` ids are text-object ordinals | no — the sets differ in 2 of 3 documents: `CHEKLIST.JSP` `SYID` = `{1…14, 17}` vs `MCLD.ids` = `{1,2,3,5,7,…,20}` (4 and 6 are `SYID`-only, `15,16,18,19,20` are `MCLD`-only); `CLRCHK.JSP` 94 `SYID` ids vs 94 `MCLD` ids with 20+ differences; `INFOSHET.JSP` coincides trivially (one id, `1`) |
+| `SYID` ids are shape chunk ids | no — `SYID` values are ≤ `0x7B` (`CHEKLIST.JSP` 1–17, `CLRCHK.JSP` 5–123 with high-water 127) and no `Contents` chunk id is below `0x100` |
+| `SYID` ids are text-object ordinals | no — the sets differ in 2 of 3 documents: `CHEKLIST.JSP` `SYID` = `{1…14, 17}` vs `MCLD.ids` = `{1,2,3,5,7,…,20}` (4 and 6 are `SYID`-only, `15,16,18,19,20` are `MCLD`-only); `CLRCHK.JSP` both have 94 ids but 15 are `SYID`-only (`9,10,11,19,20,21,26,28,115–120,123`) and 15 are `MCLD`-only (`3,4,6,14,15,16,22,24,34–37,49,51,74`); `INFOSHET.JSP` coincides trivially (one id, `1`) |
 
 `[UNKNOWN]` the remaining half: which field of the `Contents` shape record holds the
 text-object ordinal. Candidate measured in `CHEKLIST.JSP`: the 10 top-level shape chunks
