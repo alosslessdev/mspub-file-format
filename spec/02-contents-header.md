@@ -96,15 +96,21 @@ load normally. [OBSERVED]
 
 ## 2.4 `+0x0E` and `+0x10`
 
-* `+0x0E` equals the id of the DOCUMENT chunk in all 128 files. The loader passes the *address*
-  of this field to the directory loader (`FUN_0045E06A`), which writes a recomputed value back —
-  so this is the "current document block id" slot maintained across load/save. [OBSERVED]
-* `+0x10` is a PAGE id. Over 128/128 files it is exactly the entry at index 3 (the **4th page**)
-  of the document's page order (first page from DOCUMENT +0x08, remaining pages from the
-  DOCUMENT +0x74 array). Because the page order carries exactly five entries in every corpus
-  file, index 3 always exists. [OBSERVED] Its *role* (current view page? a reserved page slot?)
-  is [UNKNOWN]; the discriminating experiment is to change the current page in Publisher, save,
-  and re-read `+0x10`.
+* `+0x0E` equals the id of the DOCUMENT (0x0015) chunk in **130/130** P95 documents. The loader
+  passes the *address* of this field to the directory loader (`FUN_0045E06A`), which writes a
+  recomputed value back — so this is the "current document block id" slot maintained across
+  load/save. Immediately after loading, the open function calls `FUN_0041D0C7(docId, 1)`
+  (VA `0x0041D0C7`), which sets the low two bits of that chunk's in-memory `flags` word — the
+  document is marked as in use. [OBSERVED]
+* `+0x10` is a PAGE id: it equals the entry at index **3** (the 4th page) of the document's page
+  order (first page from DOCUMENT `+0x08`, the rest from the DOCUMENT `+0x74` array) in
+  **130/130** P95 documents, **108/108** Publisher 97 documents and **249/250** Publisher 97
+  deluxe documents. Because the page order has at least five entries in every P95 document,
+  index 3 always exists. In Publisher 98 the field is `0` in all 5 documents (the record moved).
+  [OBSERVED] Its *role* (current view page? the page shown when the file opens?) is [UNKNOWN];
+  the discriminating experiment is to change the current page in Publisher, save, and re-read
+  `+0x10`. The one P97-deluxe exception is a document whose page order changed after the field
+  was written, which is consistent with "cached pointer, not recomputed on save".
 
 ## 2.5 The descriptor area `0x22…0x41`
 

@@ -29,13 +29,18 @@ def corpus_files(path):
 
 
 def documented_markers():
-    """Markers that appear in a chapter *heading* (i.e. have their own section)."""
+    """Markers written in inline code (`` `0x0015` ``) in a chapter.
+
+    That is the convention this specification uses when a chapter gives a marker a
+    layout entry, so it is a better signal than a bare mention.
+    """
     found = set()
     for path in glob.glob(os.path.join("spec", "*.md")):
-        for line in open(path, encoding="utf-8"):
-            if line.startswith("#"):
-                for hexv in re.findall(r"0x([0-9A-Fa-f]{4})\b", line):
-                    found.add(int(hexv, 16))
+        text = open(path, encoding="utf-8").read()
+        if path.endswith("blocks/chunk-markers.md"):
+            continue
+        for hexv in re.findall(r"`0x([0-9A-Fa-f]{4})`", text):
+            found.add(int(hexv, 16))
     return found
 
 
@@ -65,8 +70,8 @@ def main():
         "`+0x03` (chapter 12); it does not grow with the optional counted tail. Sizes are",
         "the modal payload size and its share of instances.",
         "",
-        "`Layout` is `yes` only when a chapter heading documents the marker; `-` means the",
-        "marker is observed but has no layout section yet — those are the open gaps.",
+        "`Layout` is `yes` when some chapter names the marker in inline code (the convention",
+        "used for a layout entry); `-` means the marker is observed but undocumented.",
         "",
         "| Marker | Name | Count | Modal size | Size modes | B | P95 | P97 | P97D | P98 | Layout |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
