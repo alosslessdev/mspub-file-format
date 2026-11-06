@@ -391,7 +391,10 @@ children of the DOCUMENT except `0x004C`/`0x0052`, which hang off `0x0045`. [OBS
 | `0x0045` | 8, fixed | `u16 id of the 0x004C chunk` at `+0x04`, `u16 id of the 0x0052 chunk` at `+0x06`; 5/5 |
 | `0x0043` | 20 + 2·N | `N` at `+0x0A`, duplicate `+0x0C`; `N` `u16` chunk ids from `+0x14`. The ids are the top-level objects of every page except the first (the shape-gallery page), excluding `0x002C` — set-equal 5/5 |
 | `0x004C` | 40 + 6·N | `N` at `+0x12`, duplicate `+0x14`; `N` `u32` 16.16 values at `+0x24`, sentinel `0x7FFFFFFF` at `+0x24+4N` (10/10 across both markers), then `N` `u16` ids at `+0x28+4N` — **109/109 ids resolve** to real chunks. Maps an id to a shape; the values equal the `u32` at `0x0008+0x58` |
-| `0x0052` | 40 + 34·N | `N` at `+0x12`, duplicate `+0x14`; `N` `u32` keys, the same `0x7FFFFFFF` sentinel, then `N` × 30-byte records (the keys are a superset of the `0x004C` value array, 5/5) |
+| `0x0052` | 40 + 34·N | `N` at `+0x12`, duplicate `+0x14`; `u16 0x001E` (record size) at `+0x16`; `N` sorted unique `u32` keys at `+0x24`, sentinel `0x7FFFFFFF` at `+0x24+4N` (5/5), then `N` × 30-byte records — see below |
+
+Two further markers, `0x004E`/`0x004F`/`0x0050`, are Publisher-98-only and occur in
+`CHEKLIST.JSP` alone; they share one header (§11.11.2).
 
 ### `0x0041` is a page slot
 
@@ -431,18 +434,96 @@ The 40-byte PAGE form, for reference:
 ## 11.12 Publisher 97-era records
 
 Four markers occur in the Publisher 97 corpora and in neither 95 nor 98. All have exact
-size rules; the interiors of three are `[UNKNOWN]`. [OBSERVED]
+size rules; `0x003A` and `0x003F` are now mapped. [OBSERVED]
 
 | Marker | Instances | Size | Parent | Framing |
 |---|---|---|---|---|
 | `0x002F` | 12 | 38, fixed | `0x0016` story container | `+0x04 u16 0x0002`, `+0x06 u16 0x021A`, `+0x08 u16 1`, `+0x0A u16 1`, `+0x0C u16 4`, `+0x1E u16 0x1E95`, `+0x22 u16 0xFFFF`; interior `[UNKNOWN]` |
-| `0x003A` | 342 | 26 … 1 014 | `0x0031` design set | the 26-byte empty form is the u32 container (count 0 at `+0x04`, duplicate `+0x08`, end offset `size − 0x16` at `+0x0C`, `u32 4` at `+0x16`) in 330/330; the 12 populated instances (304…1 014 B) do **not** follow that rule — `[UNKNOWN]` |
-| `0x003B` | 12 | 26, fixed | `0x002F` | byte-identical empty u32 container, 12/12 |
-| `0x003F` | 35 | 180, fixed | `0x0015` document | `+0x04 u32 1`, `+0x08 u32 1`, two 32-bit stamps at `+0x10`/`+0x14`, then a NUL-terminated name (`"Every L7160,"…`); interior `[UNKNOWN]` |
+| `0x003A` | 342 (95 `p97`, 247 `p97deluxe`) | 26 … 1 014 | `0x0031` design set, 342/342 | u32 container: `u32@+0x04 == u32@+0x08` (count), `u32@+0x0C == size − 0x16` (end), `u16 1` at `+0x10`, `u32 0xFFFFFFFF` at `+0x12`, `u32[n+1]` slots at `+0x16` with slot *n* == end — **all 342, the 12 populated included**; the slots index a record arena (below) |
+| `0x003B` | 12 | 26, fixed | `0x002F`, 12/12 | one byte body, 12/12: `3b 00 04 04  00000000 00000000 04000000 0100 ffffffff 04000000` |
+| `0x003F` | 35 | 180, fixed | `0x0015` document, 35/35 | label/label-sheet template record — full map below |
 
 The 26-byte empty form shared by `0x003A`/`0x003B` is the same container shape as the
 `0x0032` L2 form (§11.7) — count, duplicate, end offset, `u16 1`, `u32 0xFFFFFFFF`, one
-`u32` offset — which is why the pair is grouped here rather than with the fixed records.
+`u32` slot — which is why the pair is grouped here rather than with the fixed records.
+The two empty bodies are byte-identical apart from the marker (`3a`/`3b`): 330/330 and
+12/12 respectively. [OBSERVED]
+
+**Correction.** The previous revision claimed the 12 populated `0x003A` instances "do not
+follow" the container rule. They do: `u32@+0x0C == size − 0x16` and slot *n* == end hold
+12/12 (and 342/342 with the empty form). The earlier failure came from comparing against
+`size − 0x0E`.
+
+### `0x003A` payload — an arena of records behind a slot table
+
+```
++0x00 u16 0x003A
++0x02 u16 0x0404
++0x04 u32 nEntries            duplicate at +0x08
++0x0C u32 end                 == size − 0x16
++0x10 u16 1
++0x12 u32 0xFFFFFFFF          sentinel
++0x16 u32[n+1] slots          relative to +0x16; slot n == end; the table ends at
+                              0x16 + 4·(n+1), where the arena begins
+      arena: records at the slot targets
+```
+
+The slots are a *mixed* table, not a monotone offset array: values `>= 4·(n+1)` are
+offsets to records in the arena; values below that and `0xFFFFFFFF` are index/fence words
+(a freed-slot or chaining idiom). The record at a slot target is length-prefixed:
+
+```
++0x00 u16 0
++0x02 u32 length            whole record length
++0x06 u32 tag
++0x0A u8[length−10] payload
+```
+
+Measured over the 12 populated instances (8 distinct documents — `CLASSIC`, `JAZZY`,
+`MODERN` and `PLAIN` are byte-identical duplicates between `p97/x` and
+`p97deluxe/x/PageWiz`): 289 slot-referenced records, **289/289 `u16@+0 == 0`**, length 14
+in 288 (payload = a `u32` in {0,1,2}, tag 1) and length 29 in 1 (tag 4, payload
+`"Your Email Address\0"`). So the arena holds a design-object property list whose text
+records are inline strings and whose common records are four-byte ordinals.
+`[OBSERVED for the framing; INFERENCE for "design-object property list": the only text
+record is an object name]`. The 1-byte residue seen in
+`p97deluxe/x/PageWiz/plain_cd.pub` (arena 575 bytes, 41×14+1) is the one anomaly: that
+document's slot table is one byte longer than `4·(n+1)`.
+
+### `0x003F` payload — a label-sheet template
+
+```
++0x00 u16 0x003F
++0x02 u16 0xB4B4
++0x04 u32 printerDriverFlag  1 in 33, 0 in the 2 `…7169` documents
++0x08 u32 1                  35/35
++0x0C u32 pageWidthEmu        8.5 in (letter) or 8.27 in (A4) — equal to the DOCUMENT's
++0x10 u32 pageHeightEmu       11 in or 11.69 in
++0x14 u32 margin1Emu          EMU; order of the four margins [UNKNOWN]
++0x18 u32 margin2Emu
++0x1C u32 margin3Emu
++0x20 u32 margin4Emu          0 in most templates
++0x24 u32 labelWidthEmu       cross-checked against the name text
++0x28 u32 labelHeightEmu
++0x2C u32 columns             label grid
++0x30 u32 rows
++0x34 char[] name             ASCII, NUL-terminated ("Avery 5160,Address,(1\" x 2 5/8\"),1,");
+                             bytes after the NUL are stale text from a previous longer name
+```
+
+Evidence: all 35 records are children of the DOCUMENT (0x0015, 35/35); `+0x34` is printable
+in 35/35 and the bytes after the NUL are zero in 33/35 — the two non-zero tails are the
+stale fragment `,1,` in `B5161.PUB`/`B5163.PUB`, the same stale-text idiom as the `0x001F`
+name slot (§11.6);
+`+0x24`/`+0x28`/`+0x2C`/`+0x30` were cross-checked against the dimensions and grid embedded
+in the name: height matches 35/35 **inches**, width 33/35 (the two `Avery 5660` documents
+state `2 5/6"` in the name while the field and the real label are 2 5/8"), columns×rows in
+{(3,10)×8, (2,7)×4, (2,3)×4, (2,5)×3, (3,7)×2, (3,6)×2, (2,8)×2, (3,4)×2, (2,2)×2,
+(3,3)×2, (2,10)×2, (4,20)×1, (2,4)×1} — every pair is a real Avery grid. `+0x0C`/`+0x10`
+are the page size and are identical for all records of one installation (`0x7698F0`×
+`0x997AA0` = 8.5×11 in on the PageWiz templates, `0x735B40`×`0xA325A0` = 8.27×11.69 in on
+the `…716x` label files). `[OBSERVED for the dimensions and the grid; INFERENCE for the
+margin order and the `+0x04` flag]`
 
 ## 11.13 Open
 

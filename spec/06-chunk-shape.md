@@ -413,7 +413,12 @@ proven. `shape8_tail` is not gated: `0x0008` exists only in the Publisher 98 cor
   over the 130 Publisher 95 documents, plus every pair of DOCUMENT bytes and every byte of
   every chunk type that occurs exactly once in ≥ 120 documents, finds **only the header
   cells `0x36`/`0x40` themselves** as perfect predictors (i.e. the cache, not a source).
-  `[OBSERVED]` Seven documents carry two different `A(0x03)` values — `BUSNESGO.PUB`,
+  The cache cells are exact: the `u16` at header `+0x36` equals `(B<<8) | A` of the
+  `0x0002` records and the `u16` at `+0x40` equals `(B<<8) | A` of the `0x0003` records in
+  **488/488** documents — i.e. the low byte of the cache word is the record's `A`, the high
+  byte its `B`. So a reader can obtain the expected descriptor without scanning the chunks,
+  and a writer that changes one must change both. `[OBSERVED]`
+  Seven documents carry two different `A(0x03)` values — `BUSNESGO.PUB`,
   `CATALOG.PUB`, `RESTRM.PUB`, `binder1`–`binder3.pub`, `giftcer2.pub` — and the second
   value always equals `A(0x02) + 2` of a *different* lineage (`binder1.pub`: header cell
   and every `0x0002` say `0xA4`, yet its `0x0003` chunks are split between `0x9E` and
