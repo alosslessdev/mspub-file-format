@@ -144,6 +144,7 @@ class Reader:
         The list chain ends when the next-list offset is 0xFFFFFFFF.
         """
         chunks = []
+        # List header: {u16 tag, u16 count, u32 nextListOffset}; records follow.
         off = 0x18
         seen = set()
         while off != 0xFFFFFFFF and off + 8 <= len(blob) and off not in seen:
