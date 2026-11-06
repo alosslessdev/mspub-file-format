@@ -5,8 +5,9 @@ per chunk type marker. `B` is the writer-side fixed record length byte at chunk
 `+0x03` (chapter 12); it does not grow with the optional counted tail. Sizes are
 the modal payload size and its share of instances.
 
-`Layout` is `yes` when some chapter names the marker in inline code (the convention
-used for a layout entry); `-` means the marker is observed but undocumented.
+`Layout` is `yes` when some chapter has a table row whose first cell is that marker —
+the convention used here for a per-marker layout entry. `-` means the marker is
+observed but has no layout entry yet.
 
 | Marker | Name | Count | Modal size | Size modes | B | P95 | P97 | P97D | P98 | Layout |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -19,9 +20,9 @@ used for a layout entry); `-` means the marker is observed but undocumented.
 | `0x0006` | SHAPE_OBJECT | 4050 | 53 (100%) | 53×4045, 61×5 | 53, 61 | 1324 | 869 | 1852 | 5 | yes |
 | `0x0007` | SHAPE7 | 1159 | 41 (100%) | 41×1154, 49×5 | 41, 49 | 268 | 192 | 694 | 5 | yes |
 | `0x0008` | SHAPE8 | 114 | 128 (96%) | 128×110, 132×2, 130×1 | 118 | 0 | 0 | 0 | 114 | yes |
-| `0x0009` | ? | 5 | 61 (100%) | 61×5 | 53 | 0 | 0 | 0 | 5 | yes |
-| `0x000a` | ? | 7 | 126 (71%) | 126×5, 222×1, 198×1 | 116 | 0 | 0 | 0 | 7 | yes |
-| `0x000b` | ? | 5 | 86 (100%) | 86×5 | 78 | 0 | 0 | 0 | 5 | yes |
+| `0x0009` | ? | 5 | 61 (100%) | 61×5 | 53 | 0 | 0 | 0 | 5 | - |
+| `0x000a` | ? | 7 | 126 (71%) | 126×5, 222×1, 198×1 | 116 | 0 | 0 | 0 | 7 | - |
+| `0x000b` | ? | 5 | 86 (100%) | 86×5 | 78 | 0 | 0 | 0 | 5 | - |
 | `0x000f` | GROUP | 2935 | 38 (45%) | 38×1335, 40×393, 42×332 | 24, 32 | 827 | 705 | 1394 | 9 | yes |
 | `0x0014` | PAGE | 2809 | 36 (54%) | 36×1512, 52×516, 40×94 | 26, 30 | 727 | 608 | 1438 | 36 | yes |
 | `0x0015` | DOCUMENT | 493 | 154 (44%) | 154×216, 156×90, 124×88 | 136, 106, 178 | 130 | 108 | 250 | 5 | yes |
@@ -51,11 +52,11 @@ used for a layout entry); `-` means the marker is observed but undocumented.
 | `0x0037` | ? | 183 | 14 (70%) | 14×129, 20×48, 26×5 | 4 | 16 | 36 | 126 | 5 | yes |
 | `0x0038` | ? | 127 | 14 (100%) | 14×127 | 4 | 15 | 18 | 94 | 0 | yes |
 | `0x0039` | ? | 493 | 48 (99%) | 48×488, 56×5 | 48, 56 | 130 | 108 | 250 | 5 | yes |
-| `0x003a` | ? | 342 | 26 (96%) | 26×330, 466×2, 430×2 | 4 | 0 | 95 | 247 | 0 | yes |
+| `0x003a` | ? | 342 | 26 (96%) | 26×330, 466×2, 430×2 | 4 | 0 | 95 | 247 | 0 | - |
 | `0x003b` | ? | 12 | 26 (100%) | 26×12 | 4 | 0 | 4 | 8 | 0 | - |
 | `0x003f` | ? | 35 | 180 (100%) | 180×35 | 180 | 0 | 13 | 22 | 0 | - |
-| `0x0040` | ? | 4 | 28 (100%) | 28×4 | 28 | 0 | 0 | 0 | 4 | yes |
-| `0x0041` | ? | 5 | 40 (100%) | 40×5 | 30 | 0 | 0 | 0 | 5 | yes |
+| `0x0040` | ? | 4 | 28 (100%) | 28×4 | 28 | 0 | 0 | 0 | 4 | - |
+| `0x0041` | ? | 5 | 40 (100%) | 40×5 | 30 | 0 | 0 | 0 | 5 | - |
 | `0x0043` | ? | 5 | 20 (40%) | 20×2, 50×1, 34×1 | 10 | 0 | 0 | 0 | 5 | - |
 | `0x0045` | ? | 5 | 8 (100%) | 8×5 | 8 | 0 | 0 | 0 | 5 | - |
 | `0x0047` | PALETTE | 5 | 192 (100%) | 192×5 | 150 | 0 | 0 | 0 | 5 | yes |

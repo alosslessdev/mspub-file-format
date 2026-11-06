@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import glob
 import os
 import struct
 import sys
@@ -46,10 +47,20 @@ def marker_bbox(chunk):
 
 
 def load_corpora(corpora):
+    """Yield (corpus, path, Document) over *.PUB *and* *.JSP publications.
+
+    p98_corpus.pub_files only globs `.pub`; the Publisher 98 CD ships three
+    publications with the `.JSP` extension (CHEKLIST, CLRCHK, INFOSHET), so the
+    census must add them or the corpus is 488 documents instead of 493.
+    """
     for corp in corpora:
         path = corp if os.path.isdir(corp) else os.path.join(ROOT, corp)
-        for f, doc in pc.load(path):
-            if isinstance(doc, Exception):
+        files = sorted(f for f in glob.glob(os.path.join(path, "**", "*"), recursive=True)
+                       if f.lower().endswith((".pub", ".jsp")) and os.path.isfile(f))
+        for f in files:
+            try:
+                doc = pubcore.parse_contents(f)
+            except Exception:
                 continue
             yield corp, f, doc
 

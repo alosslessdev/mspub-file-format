@@ -36,10 +36,12 @@ def documented_markers():
     """
     found = set()
     for path in glob.glob(os.path.join("spec", "*.md")):
-        text = open(path, encoding="utf-8").read()
-        if path.endswith("blocks/chunk-markers.md"):
+        if path.endswith("chunk-markers.md"):
             continue
-        for hexv in re.findall(r"`0x([0-9A-Fa-f]{4})`", text):
+        text = open(path, encoding="utf-8").read()
+        # a table row whose first cell is the marker: the spec's convention for a
+        # per-marker layout entry
+        for hexv in re.findall(r"^\|\s*`0x([0-9A-Fa-f]{4})`", text, re.M):
             found.add(int(hexv, 16))
     return found
 
@@ -70,8 +72,9 @@ def main():
         "`+0x03` (chapter 12); it does not grow with the optional counted tail. Sizes are",
         "the modal payload size and its share of instances.",
         "",
-        "`Layout` is `yes` when some chapter names the marker in inline code (the convention",
-        "used for a layout entry); `-` means the marker is observed but undocumented.",
+        "`Layout` is `yes` when some chapter has a table row whose first cell is that marker —",
+        "the convention used here for a per-marker layout entry. `-` means the marker is",
+        "observed but has no layout entry yet.",
         "",
         "| Marker | Name | Count | Modal size | Size modes | B | P95 | P97 | P97D | P98 | Layout |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
