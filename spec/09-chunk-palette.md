@@ -196,6 +196,34 @@ by the document palette — the image record carries no palette field. A viewer 
 use the metafile's palette; falling back to the document scheme produces wrong
 colours for `DIB`-based metafiles.
 
+## 9.5 Derived colour arithmetic
+
+Three helpers in `MSPUB.EXE` (Publisher 98 build) resolve the non-literal tag classes.
+Behaviour, paraphrased from VAs `0x004C98CF`, `0x004C998A`, `0x004C9A60`: [OBSERVED at the
+VA level; the packing notes are `[INFERENCE]`]
+
+**Brightness stage.** `FUN_004C998A(base, lighten, pct)` returns:
+
+| Condition | Result |
+|---|---|
+| `pct == 100` | `base` unchanged |
+| `pct == 0` | `0xFFFFFF` when `lighten`, else `0x000000` |
+| otherwise | per channel: `(k + channel·pct) / 100`, where `k = 25550 − 255·pct` when `lighten`, else `k = 50` |
+
+So `lighten = 0` blends the channel toward black and `lighten = 1` toward white, in integer
+arithmetic with truncation. A single special value is remapped when a global mode bit is set:
+`0x04737B` becomes `0x04737C` (the "automatic" colour, §9.1).
+
+**Derived spaces (tags `0x40`–`0x5F`, `0x80`–`0x9F`).** `FUN_004C98CF` maps the reference
+through `FUN_004C9A60`, which looks the low word up in a table reached from
+`DAT_00613920 + 0x60` and takes the `u32` at `+6` of the entry — an index→colour map, not
+arithmetic. It then applies the brightness stage to the result.
+
+**Not yet decoded.** The contents of that derived-space table (an index→RGB map) and the
+exact bit packing the three call sites use for the brightness pair. Both are reachable from
+the same three VAs; a decoded sample (one document using a theme/tint colour) would settle
+them.
+
 ## 9.6 Open
 
 * `+0x04`/`+0x08`/`+0x0C`/`+0x90`/`+0x94`/`+0x9C` — **[UNKNOWN]**; both samples are
@@ -205,5 +233,5 @@ colours for `DIB`-based metafiles.
   presumably inside `MSPUB.M14`, chapter 12 §12.8 and `notes/p98/slices/m14.md`).
 * Scheme-name field — **closed**: UTF-16LE, NUL-terminated, starts `+0x0E`, zero-padded up
   to `+0x90`; longest observed 9 characters, so the field is 0x82 bytes wide.
-* Case 2/4/6 arithmetic (derived colour spaces) — **[UNKNOWN]**; the helpers are
-  `FUN_004c9a60`, `FUN_004c98cf`, `FUN_004c998a`.
+* Derived-space table contents (index→RGB map reached from `DAT_00613920 + 0x60`) — the
+  arithmetic around it is documented in §9.5; the table itself is `[UNKNOWN]`.

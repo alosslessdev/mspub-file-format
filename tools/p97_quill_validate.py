@@ -94,8 +94,14 @@ def parse_directory(blob, errors):
 
 # ---------------------------------------------------------------- descriptor streams
 
-CODE_FIXED = {1: 2, 2: 4, 3: 4, 4: 6}   # code -> total record size
+CODE_FIXED = {0: 2, 1: 2, 2: 4, 3: 4, 4: 6, 5: 10,
+              0x1C: 2, 0x1D: 2, 0x1E: 2}   # code -> total record size
 CODE_VAR = (0x10, 0x11)                  # {u16 tag; u32 len; payload[len-4]}, total 2+len
+# The full 32-entry code -> size table is data in QS98.DLL at VA 0x404680C8 (stride 8),
+# indexed by tag >> 11 and read by FUN_404076b1. Codes 0 (explicit zero), 1 (boolean
+# true), 5 (two u32) and 0x1C-0x1E (merge markers) are real; 0x06-0x0F/0x12-0x1B are
+# id-only like code 0 and Publisher 98 never emits them, so the walker below rejects
+# them rather than accepting noise as a valid stream.
 
 
 def parse_descriptors(data):
@@ -135,6 +141,23 @@ def walk_blobs(blob, start):
     return out if pos == len(blob) else None
 
 
+def pool_of(blob, count, ids):
+    """Locate the right-aligned descriptor pool of an FDPP/FDPC chunk; None if absent.
+
+    The writer fills the 512-byte page backwards, so the slack between the id array and
+    the pool is unwritten and the pool has to be found by its end: the first candidate
+    offset whose {u32 size; size-4} chain covers the chunk with exactly one blob per
+    distinct id.
+    """
+    ndistinct = len(set(ids))
+    aligned = (8 + 6 * count + 3) & ~3
+    for cand in range(min(aligned, len(blob)), len(blob)):
+        blobs = walk_blobs(blob, cand)
+        if blobs is not None and len(blobs) == ndistinct:
+            return blobs
+    return None
+
+
 def check_fdp(blob, name, errors, where):
     """FDPP / FDPC: header + pos[] + id[] + right-aligned descriptor pool."""
     count, ver, start = struct.unpack_from("<HHI", blob, 0)
@@ -148,22 +171,15 @@ def check_fdp(blob, name, errors, where):
     ids = struct.unpack_from("<%dH" % count, blob, 8 + 4 * count) if count else ()
     if any(pos[i] > pos[i + 1] for i in range(count - 1)):
         errors.append("%s %s: positions not ascending" % (where, name))
-    ndistinct = len(set(ids))
-    aligned = (body + 3) & ~3
-    pool = None
-    for cand in range(min(aligned, len(blob)), len(blob)):
-        blobs = walk_blobs(blob, cand)
-        if blobs is not None and len(blobs) == ndistinct:
-            pool = (cand, blobs)
-            break
+    pool = pool_of(blob, count, ids)
     if pool is None:
-        errors.append("%s %s: no descriptor pool with %d entries" % (where, name, ndistinct))
+        errors.append("%s %s: no descriptor pool with %d entries"
+                      % (where, name, len(set(ids))))
         return
-    for bp, size in pool[1]:
+    for bp, size in pool:
         if parse_descriptors(blob[bp + 4:bp + size]) is None:
             errors.append("%s %s: unparsable descriptor blob at %#x" % (where, name, bp))
             break
-    return pool[0]
 
 
 def check_table20(blob, name, errors, where):
@@ -224,25 +240,192 @@ def check_strs(blob, errors, where):
 
 
 def check_element_array(blob, name, errors, where, elem_hint=None):
-    """Family B: {u32 count; u32 elemSize; u8 f0,f1,f2,u8; u32 off[count+1]; elements}."""
-    if len(blob) < 16:
-        errors.append("%s %s: shorter than 16-byte header" % (where, name))
+    """Family B: {u32 count; u32 elemSize; u8 f0,f1,f2,u8; u32 off[count+1]; elements}.
+
+    Two payload forms exist and both are measured (spec 13.10). Contiguous (mode -1 in
+    FUN_404223b4): count * elemSize bytes. Packed (any other mode, FUN_4042251d): count x
+    {u32 len; len-4 bytes of descriptor stream} followed by the 6-byte trailer
+    {tag 0x2200 = 0xFFFFFFFF}.
+    """
+    if len(blob) < 12:
+        errors.append("%s %s: shorter than 12-byte header" % (where, name))
         return
     count, elem = struct.unpack_from("<II", blob, 0)
     if elem_hint is not None and elem != elem_hint:
         errors.append("%s %s: element size %d != %d" % (where, name, elem, elem_hint))
-    total = 16 + 4 * count + count * elem
-    if total != len(blob):
-        errors.append("%s %s: size identity %d != %d" % (where, name, total, len(blob)))
+    hdr = 12 + 4 * (count + 1)
+    if hdr > len(blob):
+        errors.append("%s %s: %d offsets exceed chunk" % (where, name, count + 1))
+        return
+    offs = struct.unpack_from("<%dI" % (count + 1), blob, 12)
+    if any(offs[i] > offs[i + 1] for i in range(count)):
+        errors.append("%s %s: offsets not ascending" % (where, name))
+    if hdr + count * elem == len(blob):
+        return
+    p, walk_ok = hdr, True
+    for _ in range(count):
+        if p + 4 > len(blob):
+            walk_ok = False
+            break
+        n = struct.unpack_from("<I", blob, p)[0]
+        if n < 4 or p + n > len(blob) or parse_descriptors(blob[p + 4:p + n]) is None:
+            walk_ok = False
+            break
+        p += n
+    if walk_ok and blob[p:] == b"\x0a\x00\x00\x00\x00\x22\xff\xff\xff\xff":
+        return
+    errors.append("%s %s: neither contiguous (%d) nor packed (%s, tail %d) form fits %d"
+                  % (where, name, hdr + count * elem,
+                     "ok" if walk_ok else "unparsable", len(blob) - p, len(blob)))
+
+
+# ---- the QS98.DLL property-class tables (spec 13.17) --------------------------------
+# id -> the on-disk codes the class declares; ('f',) = boolean, code 0 or 1.
+# Derived from the table at VA 0x40463AD8 (page directory) / 0x40463ADC (id sets),
+# 6-byte descriptors at pageBase + ((id & 0x1FF) >> shift) * 6.
+
+
+def _codes(spec):
+    out = {}
+    for item in spec.split():
+        fid, code = item.split(":")
+        out[int(fid, 16)] = ("f",) if code == "f" else (int(code, 0),)
+    return out
+
+
+CLASS_1_CODES = _codes(          # text-run (character) properties, carrier FDPC
+    "200:2 202:f 203:f 204:f 205:f 208:2 20c:4 20f:2 210:f 211:4 212:4 213:f "
+    "214:f 215:f 216:f 217:f 218:4 21a:4 21b:4 21c:f 21d:3 21e:2 21f:3 220:3 "
+    "222:4 223:4 224:0x11 229:3 22a:3 22b:3 22d:f 22e:4 22f:4 230:4 231:4")
+
+CLASS_2_CODES = _codes(          # paragraph properties, carrier FDPP
+    "200:2 202:4 203:3 204:2 205:4 206:4 208:2 20a:f 20c:4 20d:4 20e:4 212:4 "
+    "213:4 214:4 215:4 216:4 217:f 218:f 219:3 21a:2 21b:f 21c:f 21d:f 21e:2 "
+    "21f:4 220:2 221:4 222:4 223:4 224:4 225:2 22a:2 22c:2 22d:2 230:2 231:2 "
+    "232:0x10 233:2 234:4 235:4 236:2 237:2 239:2")
+
+CLASS_12_CODES = _codes(         # MCLD document-object record
+    "200:4 201:4 202:4 203:4 204:4 205:4 206:4 207:4 208:4 209:4 20a:4 20b:3 "
+    "20c:f 20d:4 20e:4 211:4 212:4 213:2 214:f 215:4 216:4 217:4 218:4 219:f 21a:f")
+
+CLASS_18_CODES = _codes("200:f 201:4")       # MCLD object header
+
+CLASS_12_STREAM = 130            # sum of the 25 encoded widths
+
+
+def check_class_stream(buf, codes, errors, where, label):
+    """Every tag in one descriptor stream must be a field of the class it is used as."""
+    recs = parse_descriptors(buf)
+    if recs is None:
+        errors.append("%s %s: unparsable stream (%d bytes)" % (where, label, len(buf)))
+        return None
+    for fid, code, _n in recs:
+        want = codes.get(fid)
+        if want is None:
+            errors.append("%s %s: id %#x not in the class" % (where, label, fid))
+        elif want == ("f",):
+            if code not in (0, 1):
+                errors.append("%s %s: boolean id %#x written with code %d"
+                              % (where, label, fid, code))
+        elif code != want[0]:
+            errors.append("%s %s: id %#x code %d != class type %d"
+                          % (where, label, fid, code, want[0]))
+    return recs
 
 
 def check_mcld(blob, errors, where):
+    """{u32 tag; u32 count; u32 ids[count];
+        count x {u32 12; class-18 stream; u32 n; n x {u32 134; class-12 stream}}}"""
     if len(blob) < 8:
         errors.append("%s MCLD: shorter than header" % where)
         return
     tag, count = struct.unpack_from("<II", blob, 0)
     if 8 + 4 * count > len(blob):
         errors.append("%s MCLD: id list exceeds chunk" % where)
+        return
+    ids = list(struct.unpack_from("<%dI" % count, blob, 8)) if count else []
+    if ids != sorted(set(ids)):
+        errors.append("%s MCLD: object ids not strictly ascending" % where)
+    p = 8 + 4 * count
+    for oid in ids:
+        if p + 4 > len(blob):
+            errors.append("%s MCLD: object %d: header past end" % (where, oid))
+            return
+        size_a = struct.unpack_from("<I", blob, p)[0]
+        if size_a != 12 or p + size_a > len(blob):
+            errors.append("%s MCLD: object %d: header size %d != 12" % (where, oid, size_a))
+            return
+        check_class_stream(blob[p + 4:p + size_a], CLASS_18_CODES, errors, where,
+                           "MCLD/%d/header" % oid)
+        p += size_a
+        if p + 4 > len(blob):
+            errors.append("%s MCLD: object %d: block count past end" % (where, oid))
+            return
+        nblk = struct.unpack_from("<I", blob, p)[0]
+        p += 4
+        for k in range(nblk):
+            if p + 4 > len(blob):
+                errors.append("%s MCLD: object %d block %d: size past end" % (where, oid, k))
+                return
+            size_b = struct.unpack_from("<I", blob, p)[0]
+            if size_b != CLASS_12_STREAM + 4:
+                errors.append("%s MCLD: object %d block %d: size %d != %d"
+                              % (where, oid, k, size_b, CLASS_12_STREAM + 4))
+                return
+            if p + size_b > len(blob):
+                errors.append("%s MCLD: object %d block %d: %d bytes past end"
+                              % (where, oid, k, p + size_b - len(blob)))
+                return
+            recs = check_class_stream(blob[p + 4:p + size_b], CLASS_12_CODES, errors, where,
+                                      "MCLD/%d/block%d" % (oid, k))
+            if recs is not None and [r[0] for r in recs] != sorted(CLASS_12_CODES):
+                errors.append("%s MCLD: object %d block %d: fields not the full class 12 set"
+                              % (where, oid, k))
+            p += size_b
+    if p != len(blob):
+        errors.append("%s MCLD: %d trailing bytes" % (where, len(blob) - p))
+
+
+def check_run_index(blob, recs, name, part, errors, where):
+    """BTEP/BTEC: element i is the stream offset of chunk `part` id i; offsets[] its chain."""
+    r = [x for x in recs if x[0] == name]
+    chunks = [x for x in recs if x[0] == part]
+    if len(r) != 1:
+        errors.append("%s %s: %d records (expected 1)" % (where, name, len(r)))
+        return
+    b = blob[r[0][3]:r[0][3] + r[0][4]]
+    if len(b) < 12:
+        return
+    count, elem = struct.unpack_from("<II", b, 0)
+    if elem != 4:
+        errors.append("%s %s: element size %d != 4" % (where, name, elem))
+        return
+    if count != len(chunks):
+        errors.append("%s %s: %d elements but %d %s chunks"
+                      % (where, name, count, len(chunks), part))
+        return
+    elems = list(struct.unpack_from("<%dI" % count, b, 12 + 4 * (count + 1))) if count else []
+    offs = list(struct.unpack_from("<%dI" % (count + 1), b, 12))
+    for i, (nm, rid, _n2, roff, rlen) in enumerate(chunks):
+        if rid != i:
+            errors.append("%s %s: element %d has directory id %d"
+                          % (where, name.decode(), i, rid))
+            continue
+        if elems[i] != roff:
+            errors.append("%s %s: element %d = %#x != %s offset %#x"
+                          % (where, name.decode(), i, elems[i], part.decode(), roff))
+            continue
+        sub = blob[roff:roff + rlen]
+        if len(sub) < 8:
+            continue
+        cnt2, _ver, start = struct.unpack_from("<HHI", sub, 0)
+        if start != offs[i]:
+            errors.append("%s %s: element %d start %#x != %#x"
+                          % (where, name.decode(), i, start, offs[i]))
+        last = struct.unpack_from("<I", sub, 8 + 4 * (cnt2 - 1))[0] if cnt2 else start
+        if last != offs[i + 1]:
+            errors.append("%s %s: element %d last pos %#x != %#x"
+                          % (where, name.decode(), i, last, offs[i + 1]))
 
 
 # ---------------------------------------------------------------- per-file
@@ -335,11 +518,27 @@ def check_file(path):
     if "STRS" in by_name:
         r = by_name["STRS"][0]
         check_strs(blob[r[3]:r[3] + r[4]], errors, path)
-    for name, hint in (("BTEP", 4), ("BTEC", 4), ("TOKN", 0xC), ("TCD ", None)):
+    for name, hint in ((b"BTEP", 4), (b"BTEC", 4), (b"TOKN", 0xC), (b"TCD ", None)):
         for r in by_name.get(name, []):
-            check_element_array(blob[r[3]:r[3] + r[4]], name, errors, path, hint)
-    for r in by_name.get("MCLD", []):
+            check_element_array(blob[r[3]:r[3] + r[4]], name.decode("latin-1"), errors,
+                                path, hint)
+    for name, part in ((b"BTEP", b"FDPP"), (b"BTEC", b"FDPC")):
+        if name in by_name:
+            check_run_index(blob, recs, name, part, errors, path)
+    for r in by_name.get(b"MCLD", []):
         check_mcld(blob[r[3]:r[3] + r[4]], errors, path)
+    # FDPP is the paragraph class, FDPC the text-run class (spec 13.17): every id in
+    # every descriptor blob must be a field of that class, written with its type code.
+    for name, codes in ((b"FDPP", CLASS_2_CODES), (b"FDPC", CLASS_1_CODES)):
+        for r in by_name.get(name, []):
+            b = blob[r[3]:r[3] + r[4]]
+            if len(b) < 8:
+                continue
+            count = struct.unpack_from("<H", b, 0)[0]
+            ids = [struct.unpack_from("<H", b, 8 + 4 * count + 2 * i)[0] for i in range(count)]
+            for bp, size in pool_of(b, count, ids) or []:
+                check_class_stream(b[bp + 4:bp + size], codes, errors, path,
+                                   "%s blob@%#x" % (name.decode(), bp))
     if "SYID" in by_name:
         for r in by_name["SYID"]:
             b = blob[r[3]:r[3] + r[4]]

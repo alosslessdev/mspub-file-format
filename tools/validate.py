@@ -27,6 +27,35 @@ RECORD_LEN_B = {0x00: {92}, 0x01: {96}, 0x02: {116, 140}, 0x03: {116}, 0x04: {59
 RECORD_BASE = {0x00: 102, 0x01: 106, 0x02: 126, 0x03: 126, 0x04: 59, 0x05: 62,
                0x06: 53, 0x07: 41, 0x16: 16}
 
+# Publisher 95/97 writer length byte. A shape record still carrying one of these B
+# values predates the Publisher 98 +8 shift and therefore has the 95/97 field at
+# +0x23 (spec 06 §6.7.1). Publisher 98 always writes +8 (0x5C->0x64 ... 0x29->0x31).
+RECORD_LEN_B_9597 = {0x00: 92, 0x01: 96, 0x02: 116, 0x03: 116, 0x04: 59,
+                     0x05: 62, 0x06: 53, 0x07: 41}
+
+# Descriptor of the Publisher 98 shape-list record 0x0008 (spec 06 §6.4.2).
+SHAPE8_B = 0x76
+SHAPE8_BASE = 0x80
+
+
+def colour_ref_ok(ref: int) -> bool:
+    """True when `ref` decodes under MSPUB.EXE's colour-reference switch.
+
+    MSPUB.EXE 95 FUN_00418364 @ 0x00418364 switches on `ref >> 29`:
+    0 -> palette[ref & 0xFFFF], 1 -> literal RGB, 2/4 -> derived colours,
+    anything else -> -1 (no colour). The palette has 0x38 entries (spec 09 §9.2),
+    so a palette-class reference must carry an index below 0x38.
+    """
+    top = (ref >> 29) & 0x7
+    if top == 0:
+        return (ref & 0xFFFF) < 0x38
+    if top == 1:
+        return True
+    if top in (2, 4):
+        return True
+    return False
+
+
 CHECKS = [
     "cfb_parse", "contents_magic", "declared_length", "format_version_300",
     "directory_offsets_ascending", "directory_ids_unique", "directory_parents_resolve",
@@ -35,6 +64,7 @@ CHECKS = [
     "shape_bbox_ordered", "shape_bbox_magnitude", "image_data_length_prefix", "image_data_wmf",
     "record_length_byte", "record_min_size", "record_0x22_is_18", "quill_list_terminates", "object_link_resolves",
     "group_size_equation", "group_count_pair", "group_bbox_ordered",
+    "shape_colour_ref", "shape_text_colour", "shape8_tail",
 ]
 
 
@@ -145,6 +175,39 @@ def check_file(path: str, stats: collections.Counter, failures: list):
             if c.size < base:
                 fail("record_min_size", "id=%#06x type=%#06x size=%d base=%d"
                      % (c.id, c.type_marker, c.size, base))
+            # Every 95/97 shape record carries a colour reference at +0x23 (spec 06 §6.7).
+            if c.type_marker <= 0x07 and c.data[3] == RECORD_LEN_B_9597[c.type_marker]:
+                if len(c.data) < 0x27:
+                    fail("shape_colour_ref", "id=%#06x type=%#06x short" % (c.id, c.type_marker))
+                else:
+                    ref = struct.unpack_from("<I", c.data, 0x23)[0]
+                    if not colour_ref_ok(ref):
+                        fail("shape_colour_ref", "id=%#06x type=%#06x ref=%#010x"
+                             % (c.id, c.type_marker, ref))
+                # The text colour of an image/polygon record lives at +0x70 and may be -1.
+                if c.type_marker in (0x02, 0x03) and len(c.data) >= 0x74:
+                    ref = struct.unpack_from("<I", c.data, 0x70)[0]
+                    if ref != 0xFFFFFFFF and not colour_ref_ok(ref):
+                        fail("shape_text_colour", "id=%#06x type=%#06x ref=%#010x"
+                             % (c.id, c.type_marker, ref))
+        elif c.type_marker == 0x08:
+            # Publisher 98 shape-list record: base 0x80, counted tail of u16 chunk ids
+            # (spec 06 §6.4.2). The count is stored twice and the element size word is 2.
+            if c.data[3] != SHAPE8_B:
+                fail("record_length_byte", "id=%#06x type=%#06x B=%d expected=%d"
+                     % (c.id, c.type_marker, c.data[3], SHAPE8_B))
+            if c.size < SHAPE8_BASE + 6:
+                fail("shape8_tail", "id=%#06x short size=%d" % (c.id, c.size))
+                continue
+            n = struct.unpack_from("<H", c.data, 0x76)[0]
+            n2 = struct.unpack_from("<H", c.data, 0x78)[0]
+            elem = struct.unpack_from("<H", c.data, 0x7A)[0]
+            if c.size != SHAPE8_BASE + elem * n:
+                fail("shape8_tail", "id=%#06x size=%d n=%d elem=%d" % (c.id, c.size, n, elem))
+            if n != n2:
+                fail("shape8_tail", "id=%#06x count %d != %d" % (c.id, n, n2))
+            if elem != 2:
+                fail("shape8_tail", "id=%#06x elem=%d expected=2" % (c.id, elem))
         elif c.type_marker == 0x22:
             if c.size != 18:
                 fail("record_length_byte", "record_min_size", "record_0x22_is_18", "id=%#06x size=%d" % (c.id, c.size))

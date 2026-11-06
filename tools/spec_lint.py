@@ -62,6 +62,25 @@ def lint(spec: str) -> int:
         if len(text) > 400 and not re.search(r"\[(OBSERVED|INFERENCE|UNKNOWN)\]", text):
             print("%s: no provenance markers" % name)
             problems += 1
+    # Clean-room invariant: no normative table row may cite prior art.
+    prior_rows = 0
+    prior_paras = 0
+    for name in sorted(os.listdir(spec)):
+        if not name.endswith(".md"):
+            continue
+        text = open(os.path.join(spec, name), encoding="utf-8").read()
+        for line in text.splitlines():
+            if line.lstrip().startswith("|") and "libmspub" in line:
+                print("%s: normative table row cites libmspub: %s" % (name, line[:80]))
+                problems += 1
+                prior_rows += 1
+        for para in text.split("\n\n"):
+            if "libmspub" in para and not para.lstrip().startswith("|"):
+                prior_paras += 1
+    print("prior-art paragraphs (skippable by convention): %d" % prior_paras)
+    if prior_rows == 0:
+        print("clean-room invariant: no rule table cites prior art")
+
     blocks = os.path.join(spec, "blocks")
     if os.path.isdir(blocks):
         for name in sorted(os.listdir(blocks)):

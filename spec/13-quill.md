@@ -189,23 +189,34 @@ and each record is `{u16 tag; payload}`, where `tag = fieldId(11 bits) | code(5 
 
 | code | tag mask | record size | payload |
 |---|---|---|---|
-| 1 | `0x0800` | 2 | none |
-| 2 | `0x1000` | 4 | u16 at +2 |
+| 0 | `0x0000` | 2 | none — id present, value explicitly zero |
+| 1 | `0x0800` | 2 | none — boolean true |
+| 2 | `0x1000` | 4 | u8 at +2 |
 | 3 | `0x1800` | 4 | u16 at +2 |
 | 4 | `0x2000` | 6 | u32 at +2 |
+| 5 | `0x2800` | 10 | 8 bytes at +2 (two u32) |
 | 0x10 | `0x8000` | `2 + len` | `len-4` bytes at +6 (nested list) |
 | 0x11 | `0x8800` | `2 + len` | `len-4` bytes at +6 (nested list) |
 
-`[OBSERVED]` code→width for 2/3/4 comes from the three emitters in `QS98.DLL`:
-`FUN_404196cb` (byte, tag `|0x1000`), `FUN_40419676` (u16, `|0x1800`), `FUN_40410809`
-(u32, `|0x2000`), and the record framer `FUN_4041082d`. The codes 1, 0x10 and 0x11 and
-their exact sizes are `[OBSERVED]` from the corpus: with this table 107/107 `FDPP`/`FDPC`
-blobs, 3/3 `STRS` entries and the `SGP ` payload parse to their exact byte length with no
-slack. Any other assignment leaves a remainder, so the table is pinned by exhaustion.
+`[OBSERVED]` the whole 32-entry code→size table is a real table in `QS98.DLL` at
+**VA `0x404680C8`** (stride 8: `{u32 size; u32 variable}`), indexed by `tag >> 11` by the
+element-size function `FUN_404076b1` (VA 0x404076b1). Its values are `2,2,4,4,6,10` for
+codes 0–5, `variable=1` on 0x10/0x11, and `2` for every other code (0x06–0x0F,
+0x12–0x1F) — codes 0x1C, 0x1D and 0x1E are merge markers with an id but no payload.
+Code 5's 8-byte payload is emitted by `FUN_4044dc0f` (VA 0x4044dc0f: two u32 at +2 and
++6, tag `|0x2800`); codes 2/3/4 by `FUN_404196cb` / `FUN_40419676` / `FUN_40410809`;
+code 1 and 0 by `FUN_40419623` (VA 0x40419623: `tag = value << 11 | id`, so a boolean true
+is code 1 and false is code 0). The record framer is `FUN_4041082d`.
 
-Field ids seen in the corpus (11-bit values): `0x200`–`0x228`, `0x40A`, `0x1A03`,
-`0x1A19`, `0x1A27`. `[UNKNOWN]` their meanings; the emitter table lives at
-`DAT_40463adc` in `QS98.DLL` and maps id→(type char, byte offset, width).
+`[OBSERVED]` **correction to the previous revision**: the values `0x40A`, `0x1A03`,
+`0x1A19` and `0x1A27` are *tags*, not field ids — `0x1A03 = code 3 | id 0x203`,
+`0x1A19 = code 3 | id 0x219`, `0x1A27 = code 3 | id 0x227`, and `0x40A = code 0 | id 0x20A`
+(a boolean written false). All four resolve inside the paragraph class exactly as its field
+table declares (§13.17). Field ids are 11-bit and never exceed `0x233` in the corpus.
+
+`[OBSERVED]` with this table 107/107 `FDPP`/`FDPC` blobs, 3/3 `STRS` entries and the
+`SGP ` payload parse to their exact byte length with no slack; §13.17 supplies the id
+meanings and the type/width/offset of every id.
 
 `SGP ` is exactly one descriptor stream: 4 bytes `04 00 00 00` = an empty stream
 (`totalSize == 4`). A non-default page/section setting would populate it. `[OBSERVED]`
@@ -290,34 +301,95 @@ strings live inside the per-entry descriptor streams.
 +0x0A  u8   hasNameTable  1 when a §13.7 table is appended
 +0x0B  u8   0
 +0x0C  u32  offsets[count+1]
-+...        elements[count * elemSize]
++...        elements, one of two forms:
+             contiguous (mode -1):  count * elemSize bytes
+             packed (any other):    count x {u32 len; len-4 bytes}, one descriptor each,
+                                    then one more {u32 0x0A; tag 0x2200 = 0xFFFFFFFF}
 ```
 
-`[OBSERVED]` size identity `len == 16 + 4*count + count*elemSize` holds for every corpus
-chunk: `BTEP`/`BTEC` `elemSize = 4` (3/3 each), `TOKN` `elemSize = 0xC` (1/1),
-`TCD ` `elemSize = 0` with the stride carried by the header (2/2: 0x19 elements × 4 bytes
-of offsets → 116 bytes; 0x10 → 80 bytes). Reader `FUN_404223b4`; the `elemSize == 0` form
-means "keep the on-disk stride".
+`[OBSERVED]` reader `FUN_404223b4` (VA 0x404223b4) reads exactly 12 header bytes
+(`count`, `elemSize`, then `f0 f1 f2 00` folded into three flags), then `4*(count+1)`
+offset bytes. Whether element bytes follow — and in what form — is decided by the caller's
+mode argument: **mode `-1`** reads `count*elemSize` contiguous bytes, **any other mode**
+reads `count` consecutive `{u32 len; len-4 bytes}` items and decodes each one as a
+descriptor stream into a fixed `elemSize` slot (`FUN_4042251d`, VA 0x4042251d). The mode
+comes from the version, not from the header: `TOKN` gets 7 when the `INK ` version exceeds
+0x6E and `-1` otherwise, and `TCD ` always gets `-1` (`FUN_4042278c`, VA 0x4042278c). All
+corpus streams are version 0x72, so they take the mode quoted for each chunk below.
 
-`[OBSERVED]` in `QS98.DLL` `BTEP`/`BTEC` are consumed by `FUN_4040775f` →
-`FUN_404076d9`, which turns them into `(u16 count, count × (i32 start, i32 value))` ranges
-searched by character position — i.e. a position→property map, not drawing data. The
-property itself is `[UNKNOWN]`.
+Size identity `len == 12 + 4*(count+1) + count*elemSize` therefore holds only in the
+contiguous form: `BTEP`/`BTEC` `elemSize = 4` (3/3 each), `TCD ` `elemSize = 0` (2/2:
+0x19 → 116 bytes, 0x10 → 80 bytes — the offset table is the *whole* payload).
+`[OBSERVED]` `TOKN` breaks it (1/1: 52 bytes, `elemSize = 0xC`, count 1) because its
+element area is packed: `{u32 0x16; 22-byte descriptor stream}`, then one more
+`{u32 0x0A; 6-byte stream}` item whose only record is `tag 0x2200 = 0xFFFFFFFF`;
+`f2 = 1` in the header, the same bit `FUN_404223b4` raises as its third flag.
 
-## 13.11 `MCLD` — document-level list
+`[OBSERVED]` **`BTEP` / `BTEC` are the run-table index, and this closes their identity.**
+Both are written from two global containers (`+0x284` → `BTEP`, `+0x280` → `BTEC` of the
+document object) by `FUN_4041a94b` (VA 0x4041a94b), and each `FDPP`/`FDPC` chunk is
+appended to that container as it is emitted (`FUN_40419d9b` VA 0x40419d9b for `FDPP`,
+`FUN_40419fe2` VA 0x40419fe2 for `FDPC`). The two arrays are:
+
+* `offsets[0..count]` — the concatenated `pos` chain of the runs, i.e.
+  `offsets[i] == start` of `FDPP`/`FDPC` id `i` and `offsets[i+1] == pos[count_i - 1]`
+  of the same chunk.
+* `elements[0..count-1]` — `elemSize = 4`, each a **u32 absolute stream offset of the
+  `FDPP`/`FDPC` chunk with that directory id**.
+
+`[OBSERVED]` 14/14 elements and 16/16 chain links over the three corpus documents:
+`CHEKLIST.JSP` `BTEP` = `0, 0x764, 0xFE4, 0x25CE, 0x3D52, 0x4B2C, 0x5C5A` + chunk offsets
+`0x5E00 0x6000 0x6200 0x6400 0x6600 0x6800` (= `FDPP` id 0…5), `BTEC` =
+`0, 0xCF4, 0x3C32, 0x5C5A` + `0x6A00 0x6C00 0x6E00` (= `FDPC` id 0…2);
+`CLRCHK.JSP` `BTEP` = `0, 0x67E, 0x77C` + `0x800 0xA00`, `BTEC` = `0, 0x77C` + `0xC00`;
+`INFOSHET.JSP` `BTEP` = `0, 0xA22` + `0xC00`, `BTEC` = `0, 0xA22` + `0xE00`.
+
+`[OBSERVED]` the per-object element arrays (`TOKN`, `TCD `) carry the **0-based text-object
+ordinal in the directory record's `id` field** — the same value `FUN_4041a94b` passes for
+both (`(short)element_index`). `CHEKLIST.JSP` has `TOKN` id 0 and `TCD ` ids 1 and 2, and
+each `id + 1` is a member of that document's `MCLD` ordinal list (§13.11).
+
+## 13.11 `MCLD` — document-level object records
 
 ```
 +0x00  u32  tag         20 in CHEKLIST.JSP, 114 in CLRCHK.JSP, 1 in INFOSHET.JSP
 +0x04  u32  count
-+0x08  u32  ids[count]  the ids equal the document's object ordinals (1..count)
-+...        per-id sub-blocks
++0x08  u32  ids[count]  1-based text-object ordinals, ascending
++...        count x { u32 sizeA; streamA[sizeA-4] ; u32 n; n x { u32 sizeB; streamB[sizeB-4] } }
 ```
 
-`[OBSERVED]` header and id list (3/3: 18, 94, 1 entries; ids dense and ascending, ending at
-`tag`). The sub-blocks start with `u32 0C 00 00 00` followed by a 12-byte descriptor
-stream in all three documents; the remainder is `[UNKNOWN]` — the first two sub-block
-lengths are 12 and 134 in all three, which suggests a nested list rather than one record
-per id.
+`[OBSERVED]` the framing above walks all three corpus chunks to exactly their length
+(3/3: 17 788 / 14 484 / 296 bytes; 18 + 94 + 1 objects, 339 streams total), and every
+`size` is 4-byte aligned and at least 4. `[OBSERVED]` the first sub-block of each object
+is the same 12-byte unit in all 113 objects: `0C 00 00 00` + `{id 0x200 = 0; id 0x201 =
+u32}` — 8 bytes of descriptor stream, i.e. a two-field object header. The `n` blocks that
+follow vary from 1 to 30 per object (`CLRCHK.JSP` exactly 1 in all 94 objects,
+`INFOSHET.JSP` 2, `CHEKLIST.JSP` 1/15/17/26/29/30), so the earlier "12 and 134 in all
+three" observation was the *first* object's pair only.
+
+`[OBSERVED]` the two stream kinds are two different **classes of the §13.17 property
+table**:
+
+* `streamA` is always 8 bytes and is **class 18**, which has exactly two fields —
+  `0x200` (boolean at +0x00) and `0x201` (u32 at +0x04). 113/113 objects; the boolean is
+  a real value, not a constant: false (code 0) in 109 objects, true (code 1) in 4
+  (`CHEKLIST.JSP` 15/3, `CLRCHK.JSP` 94/0, `INFOSHET.JSP` 0/1).
+* every `streamB` is exactly **class 12**'s 25-field record: `sizeB = 134` in 226/226
+  blocks, the stream 130 bytes, and all 25 ids appear in every block in ascending order.
+
+| identity | result |
+|---|---|
+| `sizeA == 12` and `sizeB == 134` | 113/113 and 226/226 |
+| `streamA` ids ⊆ class 18 (`0x200`,`0x201`) with matching codes | 113/113 |
+| `streamB` ids == class 12's exact id set (`0x200`–`0x20E`, `0x211`–`0x21A`) | 226/226, 5 650/5 650 tags |
+| `streamB` code == class-12 type for that id (`f` → code 0/1) | 5 650/5 650, 0 exceptions |
+| `streamB` byte length == 130 (sum of the 25 encoded widths) | 226/226 |
+
+`[INFERENCE]` the leading class-18 unit is the object's identity pair (a boolean plus a
+u32; `0x37CF8` = 228 600 in every `CHEKLIST.JSP`/`INFOSHET.JSP` object, `0` in all of
+`CLRCHK.JSP`) and each class-12 record is one document-level property set for that object.
+The *names* of the 25 properties are `[UNKNOWN]`; §13.17 lists their types and target
+offsets.
 
 ## 13.12 `INK ` and the version gates
 
@@ -334,18 +406,33 @@ select the modern `TCD `/`TOKN` variants.
 ## 13.13 How text attaches to shapes
 
 The Quill stream holds the character array and the run tables; the shapes reference ranges
-of it. `[UNKNOWN]` — the linkage is the second-largest gap and the one that matters most
-for rendering. What is now excluded:
+of it. `[OBSERVED]` the linkage has two halves, and the stream half is now pinned:
 
-* `FDPP`/`FDPC` chunk ids are *not* shape ids: they run 0…5 and 0…2 while
-  `CHEKLIST.JSP` has 67 document chunks.
-* `SYID` holds style ids (dense 1…n), not shape ids.
+**1. Text object → run tables.** `BTEP`/`BTEC` are the index of the run tables: element
+`i` is the absolute stream offset of `FDPP`/`FDPC` record id `i`, and `offsets[i]` is that
+chunk's `start` (14/14 elements, §13.10). A reader that has the shape's text-object
+ordinal can therefore reach the paragraph/character runs without any other structure.
 
-Remaining candidates: the per-run `start` field of `FDPP`/`FDPC` (which partitions the
-text into 6 and 3 ranges respectively — matching the number of text frames in
-`CHEKLIST.JSP`), and a text-frame id inside the shape record. Experiment: count the text
-frames in `CHEKLIST.JSP` (shape chunks whose `0x0016`-referenced style is a text frame)
-and compare with 6.
+**2. Shape → text object.** The Quill per-object chunks (`TOKN`, `TCD `) carry the 0-based
+text-object ordinal in the directory record `id`, and `MCLD` lists the same ordinals
+1-based (113 objects over the corpus, §13.11). In `CHEKLIST.JSP` the `TCD ` ids 1 and 2
+and the `TOKN` id 0 all satisfy `id + 1 ∈ MCLD.ids`. `[OBSERVED]`
+
+What is now **excluded**, with counts over the three text-bearing documents:
+
+| candidate | result |
+|---|---|
+| `FDPP`/`FDPC` chunk ids are shape ids | no — they run 0…5 / 0…2 while the `Contents` shape chunks are ids `0x100`+, 3/3 docs |
+| `SYID` ids are shape chunk ids | no — `SYID` values are ≤ `0x7F` (`CHEKLIST.JSP` max 17, `CLRCHK.JSP` max 127) and no `Contents` chunk id is below `0x100` |
+| `SYID` ids are text-object ordinals | no — the sets differ in 2 of 3 documents: `CHEKLIST.JSP` `SYID` = `{1…14, 17}` vs `MCLD.ids` = `{1,2,3,5,7,…,20}` (4 and 6 are `SYID`-only, `15,16,18,19,20` are `MCLD`-only); `CLRCHK.JSP` 94 `SYID` ids vs 94 `MCLD` ids with 20+ differences; `INFOSHET.JSP` coincides trivially (one id, `1`) |
+
+`[UNKNOWN]` the remaining half: which field of the `Contents` shape record holds the
+text-object ordinal. Candidate measured in `CHEKLIST.JSP`: the 10 top-level shape chunks
+(type `0x14`, parent `0x100`) each carry a u32 at chunk `+0x14` of `2, 6, 10, 14, 18, 22,
+26, 30, 34, 38` — a strictly monotone `4k+2` ladder, i.e. an index with a 2-bit tag, not
+the object ordinal. Experiment that would settle it: take a document with exactly two
+text frames, swap their text, and diff every `Contents` shape record against the unchanged
+`MCLD`/`TOKN` ids — the field that moves is the ordinal.
 
 ## 13.14 Publisher 95 / 97 — the in-`Contents` text layer
 
@@ -503,39 +590,151 @@ the stream (`quill_list_terminates`, 5/5).
 
 | corpus | documents | checks | result |
 |---|---|---|---|
-| `p98/x` (Quill mode) | 5 | header predicates, page chain, record count, `TEXT` decodability, `FDPP`/`FDPC` ascending positions + range chain + descriptor pool + blob parse, `STSH`/`FONT` size identity and entry bounds, `STRS` exact consumption, `SYID` size identity, element-array size identity, `MCLD` header | 0 violations |
+| `p98/x` (Quill mode) | 5 | header predicates, page chain, record count, `TEXT` decodability, `FDPP`/`FDPC` ascending positions + range chain + descriptor pool, **every `FDPP`/`FDPC` tag checked against the paragraph/text-run class of §13.17 (205 + 63 tags)**, `STSH`/`FONT` size identity and entry bounds, `STRS` exact consumption, `SYID` size identity, element-array size identity in either payload form (contiguous or packed) + ascending offsets, **`BTEP`/`BTEC` element = `FDPP`/`FDPC` chunk offset and `offsets[]` = the run chain (14 elements, 16 links)**, **`MCLD` full walk + class-18 headers and class-12 records (113 + 226 streams, 5 876 tags)** | 0 violations |
 | `p95/x`, `p97/x`, `p97deluxe/x` (text-pool mode) | 488 | store signature `0xF0DE`, header length 46, directory-offset word, `textBase == storeBase + 0x2E`, `textEnd` bounds, NUL-free pool, LF ⊆ CR | 0 violations |
 
-The Quill side covers 62 records and 107 descriptor blobs; the 95/97 side covers 488
-documents, 487 of which use the version-correct store base (the exception,
-`p97/x/INFLNTLB.PUB`, uses the Publisher 95 base and is reported by the scanner rule, not
-by a constant offset).
+The Quill side covers 62 records and 107 descriptor blobs in the run tables, 339 `MCLD`
+streams and the 14-element run index; the 95/97 side covers 488 documents, 487 of which use
+the version-correct store base (the exception, `p97/x/INFLNTLB.PUB`, uses the Publisher 95
+base and is reported by the scanner rule, not by a constant offset).
 
 ## 13.16 Open
 
 | Item | Status | Experiment |
 |---|---|---|
-| field-id meanings in the descriptor stream | `[UNKNOWN]` | decode the table at `DAT_40463ADC` — entry shape measured in §13.17 |
-| text → shape linkage | `[UNKNOWN]` — narrowed: the run tables partition the character array (6 `FDPP` / 3 `FDPC` ranges in `CHEKLIST.JSP`), and the 95/97 pool splits into `0x0C`-terminated stories (28 stories vs 26 `0x0000` chunks in `CATALOG.PUB`), but no chunk stores the pool bounds as a `u32` | author a document with two text frames whose contents are swapped, save, and diff the run tables |
+| text → shape linkage, the `Contents` half | `[UNKNOWN]` — the stream half is closed (§13.13): `BTEP`/`BTEC` reach the run tables by chunk offset and `TOKN`/`TCD `/`MCLD` agree on the text-object ordinals. What is missing is one fact: which field of the `Contents` shape record stores that ordinal. Excluded so far: `SYID` ids (2 of 3 documents differ from the ordinal set), `FDPP`/`FDPC` ids, and the shape-chunk `id` (always ≥ `0x100`); the only monotone per-shape candidate is the u32 at shape-chunk `+0x14` (`4k+2` ladder in `CHEKLIST.JSP`) | author a document with two text frames whose contents are swapped, save, and diff every `Contents` shape record against the unchanged `MCLD`/`TOKN` ids — the field that moves is the ordinal |
 | run-level formatting in the 95/97 pool | `[UNKNOWN]` | author one bold and one underlined paragraph, save, diff the store byte by byte (§13.14.3) |
-| `MCLD` sub-block interior | `[UNKNOWN]` | dump the three corpus `MCLD` chunks; correlate the 12/134-byte pair with object counts |
-| `BTEP`/`BTEC` property identity | `[UNKNOWN]` | compare a document with table borders against one without |
-| `TCD ` cell interior | `[UNKNOWN]` | dump a 2×2 table document; the container framing is already fixed (§13.10) |
+| `TCD ` offset-array meaning | `[UNKNOWN]` — the framing is closed (§13.10): the chunk is `12 + 4*(count+1)` bytes with `elemSize = 0`, i.e. the offset table *is* the payload (2/2), it is loaded per text object into object slot `0x17` (`FUN_4042278c`) and maintained as an ordered array by `FUN_4040f31b` (VA 0x4040f31b) in lockstep with the object's other per-position arrays. Blocking fact: what the `count+1` ascending u32s index. Excluded: text byte offsets (13 of the 26 values in `CHEKLIST.JSP` `TCD ` id 1 are odd, and a UTF-16LE character boundary is always even) and chunk-relative offsets (`0x3F7` is larger than the 116-byte chunk) | author a 2×2 table whose cells contain text of distinct lengths, save, and test whether the gaps between the values equal those lengths (§13.10) |
 
-## 13.17 Lead: the descriptor field table in `QS98.DLL`
+## 13.17 The property-field table in `QS98.DLL` (proven)
 
-The remaining unknown is the meaning of the 11-bit field ids in the descriptor grammar
-(§13.6). The decoder indexes a table at **VA `0x40463ADC`** (image base `0x40400000`,
-RVA `0x63ADC`, in `.rdata`). Measured shape of that table, so the next pass does not have to
-rediscover it: [OBSERVED]
+Every descriptor tag's 11-bit id is resolved through a per-class field table. Three
+functions implement the whole mechanism, and their addressing pins the layout:
+`FUN_4040d187` (VA 0x4040d187) is the class walker, `FUN_40407184` (VA 0x40407184) maps
+`(class, id)` to a 6-byte descriptor, and `FUN_40407248` (VA 0x40407248) is the two-level
+page lookup. `[OBSERVED]`
 
-* stride **8 bytes**, two 32-bit pointers per entry; entry 0 is `(0, 0x40463898)`;
-  the following first-pointers are `0x40462F60`, `0x40462FC0`, `0x40463020`, `0x40463068`, …
-* each entry's first pointer targets a structure that starts with a pointer, then a `u32`
-  count, then a `u16` array — e.g. entry 1: count `0x23` (35) followed by
-  `0x0200, 0x0202, 0x0203, 0x0204, 0x0205, 0x0206, 0x0208, 0x020A, …`
-* each entry's second pointer targets a structure holding further pointers and `0xFFFF`
-  markers — the same idiom as the document-level containers of chapter 11.
+**Class directory.** Two parallel pointer arrays, stride 8, **18 used entries** (class 0 is
+all zero, classes `> 0x12` are rejected by `FUN_40407184`):
 
-No semantic mapping is published, because entry semantics were not proven; the values above
-are a starting point, not a field list.
+```
+VA 0x40463AD8 + 8*c   u32  pageDir   page directory for class c
+VA 0x40463ADC + 8*c   u32  idSet     { u16 *ids; u32 count } for class c
+```
+
+`[OBSERVED]` **correction to the previous revision**: the table starts at `0x40463AD8`, not
+`0x40463ADC`. Class `c`'s page directory is at `0x40463AD8+8c` and its id set at
+`0x40463ADC+8c`; the earlier reading was one dword low, which is why class 0 looked
+non-empty and every other class looked shifted. Class 1's id set is at `0x40462F60` with
+count 35 — the value the previous revision attributed to "entry 1"'s first pointer.
+
+**Id set** (`idSet`): `{u16 *ids; u32 count}`, count in the low byte of the dword at
+`+4` (the walker reads it as one byte, so any class is limited to 255 ids). The `ids[]`
+array precedes its header in `.rdata` (the linker packs arrays before headers; e.g. class 1
+array at `0x40462F18`, header at `0x40462F60`).
+
+**Page directory**: `{u32 base; u32 tag}` per 512-id page. `tag & 0x1F` is a right-shift
+applied to `id & 0x1FF`; `base == 0` means the page is absent (tag `0xFFFF0000`). All 18
+classes reach their ids through page 1 (ids `0x200`–`0x3FF`) with shift 0; page 0 is
+present but unused except in classes 16/17, which use ids `0`–`2`.
+
+**Descriptor** (6 bytes), at `base + (((id & 0x1FF) >> shift) * 6)`:
+
+```
++0  u8   type    selector, see the type alphabet below
++1  u8   width   bytes to copy from / to the target record
++2  u8   offset  byte offset of the property inside the target record
++3  u8   flag    1 = only read when the caller asks for it (context bits 2/3)
++4  u16  kind    custom accessor index; 0 = the type alphabet is authoritative
+```
+
+`[OBSERVED]` the `flag` byte is filtered in `FUN_4040d187` by its `param_5` mask: bit 2
+skips every field with `flag != 1`, bit 3 skips every field with `flag == 1`. `kind != 0`
+diverts the field to a function table at **VA `0x40469540`**, stride 0xC
+(`{apply; compare; diff}`), indexed by `kind`; two are proven: `kind 10` → `FUN_4040d349`
+(VA 0x4040d349) which recurses into a nested **class 17** record, and `kind 14` →
+`FUN_4040dcad` (VA 0x4040dcad) which walks a count-prefixed array of **class 16**
+records with strides 6 and 8.
+
+**Type alphabet** `[OBSERVED]` — the type byte is the on-disk *code* for the scalar cases,
+and the setter that emits it is `FUN_404106ff` (VA 0x404106ff):
+
+| sym | type | width use | on-disk code | payload | emitter |
+|---|---|---|---|---|---|
+| `B` | byte | 1 | 2 | u8 at +2 | `FUN_404196cb` |
+| `W` | word | 2 | 3 | u16 at +2 | `FUN_40419676` |
+| `D` | dword | 4 | 4 | u32 at +2 | `FUN_40410809` |
+| `Q` | 6 of 8 bytes | 6 | 5 | two u32 at +2 | `FUN_4044dc0f` |
+| `f` | boolean | 1 | 1 true / 0 false | none | `FUN_40419623` |
+| `E` | erase marker | 0 | 0x1D | none | `FUN_40419623` |
+| `L` | nested list (0x10) | byte count | 0x10 | `{u32 len; len-4 bytes}` | `FUN_4042355c` |
+| `N` | nested list (0x11) | byte count | 0x11 | as `L` | `FUN_404215c8` |
+
+`Q` declares width 6 but its on-disk slot is 8 bytes (the emitter writes two dwords), so a
+`Q` field is a 3×u16 triple stored in an 8-byte slot. No `E` field occurs in the corpus.
+
+**The class table** (all 18 classes, `n` = id count; `record >=` is the smallest target
+record that holds every declared field):
+
+| class | n | `id type`*`width`*`@record-offset` — `*` = flag 1, `/k` = custom kind | record >= |
+|---|---|---|---|
+| 1 | 35 | `200 B1@0e*` `202 f1@00` `203 f1@01` `204 f1@03` `205 f1@04` `208 B1@0d` `20c D4@54` `20f B1@0c` `210 f1@05` `211 D4@6c` `212 D4@68` `213 f1@06` `214 f1@07` `215 f1@08` `216 f1@0a` `217 f1@0b` `218 D4@58` `21a D4@5c` `21b D4@60` `21c f1@09` `21d W2@64*` `21e B1@02` `21f W2@80` `220 W2@82` `222 D4@70*` `223 D4@74*` `224 N50@20/10` `229 W2@84` `22a W2@86` `22b W2@88` `22d f1@8a` `22e D4@10` `22f D4@14` `230 D4@18` `231 D4@1c` | 0x8B |
+| 2 | 43 | `200 B1@b4` `202 D4@b0` `203 W2@a2` `204 B1@00` `205 D4@20` `206 D4@24` `208 B1@01` `20a f1@04` `20c D4@0c` `20d D4@10/2` `20e D4@14` `212 D4@18` `213 D4@1c` `214 D4@a4` `215 D4@a8` `216 D4@d4` `217 f1@d8` `218 f1@d9` `219 W2@da*/12` `21a B1@dc` `21b f1@dd` `21c f1@de` `21d f1@df` `21e B1@b5` `21f D4@b8` `220 B1@bc` `221 D4@c0` `222 D4@c4` `223 D4@c8` `224 D4@cc` `225 B1@d0` `22a B1@e0` `22c B1@02` `22d B1@03` `230 B1@e1` `231 B1@e2` `232 L122@28/14` `233 B1@e3` `234 D4@06` `235 D4@ac` `236 B1@e4` `237 B1@e5` `239 B1@e6` | 0xE7 |
+| 3 | 42 | `200 W2@70` `201 B1@78` `202 B1@79` `203 f1@7a` `204 D4@48` `205 D4@4c` `206 D4@50` `207 D4@54` `208 D4@68` `209 D4@6c` `20a D4@74` `20b D4@00` `20c Q6@04` `20d D4@0c` `20e Q6@10` `20f D4@18` `210 Q6@1c` `211 L12@30` `212 f1@7b` `213 B1@7c` `214 B1@7d` `215 D4@24` `216 Q6@28` `217 f1@7e` `218 D4@44` `219 D4@3c` `21a B1@7f` `21b D4@80` `21c D4@84` `21d D4@88` `21e D4@8c` `21f D4@90` `220 D4@94` `221 D4@98` `222 D4@58` `223 D4@5c` `224 D4@60` `225 D4@64` `226 D4@9c` `227 D4@a0` `228 f1@a4` `229 D4@a8` | 0xAC |
+| 4 | 30 | `200 D4@00` `201 D4@04` `202 D4@08` `203 D4@0c` `204 D4@10` `205 D4@14` `206 B1@28` `207 D4@48` `208 W2@1c` `209 f1@29` `20a f1@1e` `20d W2@2a` `212 D4@34` `213 Q6@38` `214 D4@4c` `215 Q6@50` `216 f1@58` `218 B1@59` `219 f1@5a` `21a D4@30` `21b B1@40` `21c D4@18` `21d B1@5b` `21e D4@44/5` `21f W2@2c` `221 D4@20` `222 D4@24` `223 f1@5c` `224 D4@60` `225 f1@1f` | 0x64 |
+| 5 | 1 | `200 D4@00` | 0x04 |
+| 6 | 2 | `200 W2@00` `201 W2@02` | 0x04 |
+| 7 | 3 | `200 D4@00` `201 D4@04` `202 D4@08` | 0x0C |
+| 8 | 2 | `200 W2@00` `201 W2@02` | 0x04 |
+| 9 | 2 | `200 W2@00` `201 W2@02` | 0x04 |
+| 10 | 5 | `200 W2@00` `201 D4@04` `202 D4@08` `203 D4@10` `204 D4@18` | 0x1C |
+| 11 | 1 | `200 D4@00` | 0x04 |
+| 12 | 25 | `200 D4@04` `201 D4@00` `202 D4@0c` `203 D4@08` `204 D4@10` `205 D4@14` `206 D4@18` `207 D4@1c` `208 D4@20` `209 D4@24` `20a D4@28` `20b W2@2c` `20c f1@2e` `20d D4@38` `20e D4@48` `211 D4@4c` `212 D4@50` `213 B1@54` `214 f1@55` `215 D4@44` `216 D4@30` `217 D4@34` `218 D4@5c` `219 f1@2f` `21a f1@56` | 0x60 |
+| 13 | 6 | `200 Q6@00` `201 f1@06` `202 f1@07` `203 D4@0c` `204 D4@10` `205 Q6@14` | 0x1A |
+| 14 | 1 | `200 E0@00` | 0x00 |
+| 15 | 1 | `200 D4@00` | 0x04 |
+| 16 | 3 | `000 D4@00/8` `001 B4@00/9` `002 W2@04` | 0x06 |
+| 17 | 2 | `000 W2@00` `001 L255@ff` | 0x02 |
+| 18 | 2 | `200 f1@00` `201 D4@04` | 0x08 |
+
+**Class roles, proven** `[OBSERVED]`. A class is selected by the property context the
+caller builds (`FUN_4040d102`, VA 0x4040d102, stores the class at `context+0x0C`; the
+walker reads it back from there):
+
+| class | role | evidence | corpus identity |
+|---|---|---|---|
+| 0 | no table at all — a context that only replays pre-built bytes | `0x40463AD8` entry 0 is all zero; the `FDPC` writer (`FUN_40419fe2`, VA 0x40419fe2) initialises it with 0 | 1 writer, 0 lookups |
+| 1 | **text-run (character) properties**, carrier `FDPC` | every `FDPC` blob's ids and codes match class 1 | 63/63 tags, 5 chunks, 0 exceptions |
+| 2 | **paragraph properties**, carrier `FDPP` | the `FDPP` writer (`FUN_40419d9b`, VA 0x40419d9b) initialises the context with 2 and writes chunk `0x50504446`; every `FDPP` blob matches class 2 | 205/205 tags, 9 chunks, 0 exceptions |
+| 5 | **page/section setup**, carrier `SGP ` | the `SGP ` writer (`FUN_4041a897`, VA 0x4041a897) uses class 5 and writes chunk `0x20504753`; class 5 has exactly the one u32 field `0x200` | `SGP ` is the empty stream in 5/5 |
+| 12 | **`MCLD` document object record** | type of every tag in every `MCLD` block matches class 12, and the 130-byte serialised size equals the sum of the 25 encoded widths | 226/226 blocks, 5 650/5 650 tags |
+| 18 | **`MCLD` object header** | class 18's two fields (`0x200` f, `0x201` D) are exactly the 8-byte leading unit | 113/113 objects |
+| 16 | nested element of class 2 id `0x232` (`kind 14` array) | `FUN_4040dcad` walks `count` × class-16 records with strides 6/8 | 25 nested lists in `FDPP` |
+| 17 | nested sub-record of class 1 id `0x224` (`kind 10`) | `FUN_4040d349` compares `0x19` class-17 records then re-emits them under id `0x224` | 14 nested lists in `FDPC` |
+
+The corpus also confirms the *discriminating* part of the table, not just membership: for
+`FDPP` the observed tag `0x1A19` (code 3, id `0x219`) is exactly class 2's `219 W2@da`,
+and for `FDPC` the observed `0x224` (code `0x11`) is exactly class 1's `224 N50@20`.
+
+`[OBSERVED]` an independent size check falls out of the shared applier `FUN_4040e82b`
+(VA 0x4040e82b): it builds the target record with `FUN_4040657e` and passes **0x94 bytes
+when the class index is 1 and 0xE8 when it is 2**. Those are exactly the two bounds the
+class tables impose — class 1's highest field ends at `0x8B`, class 2's at `0xE7` — so the
+record sizes 148/232 bytes confirm that the table and the engine agree on the record
+layout, and that classes 1 and 2 are the two run-property records (`FDPC`, `FDPP`).
+
+**What remains `[UNKNOWN]`.** The table gives type, width and target offset for all 206
+ids, but no *meaning* for any of them. `[OBSERVED]` the descriptor is 6 bytes and its five
+fields are fully accounted for, so the table holds no name or symbol pointer: the engine
+addresses properties by number alone. Specifically unproven:
+
+* the semantics of every id (which property of the target record each offset is);
+* the roles of classes 3, 4, 6–11 and 13–15, which no corpus carrier selects. `STRS` has
+  110 entries, 107 of them empty (`totalSize == 4`) and 3 carrying the single field
+  `0x200` = u32, so the corpus cannot separate classes 4, 5 and 7 for it;
+* whether `L`/`N` field ids exist for shapes other than the two nested cases above.
+
+The one experiment that would settle the largest block: author a document that changes a
+single visible property (font size, then alignment, then fill colour), save it, and diff
+`FDPP`/`FDPC` — each change moves exactly one id's value, and its class-1 or class-2
+record offset then names the property.
