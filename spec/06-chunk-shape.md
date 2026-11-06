@@ -152,6 +152,21 @@ of sibling records** — 746/746 resolve to an existing id, 656/746 to a sibling
 appears only in the Publisher 98 corpus; its fixed base is 128 and the observed sizes are
 128, 130, 132 and 148, but the tail framing there is `[UNKNOWN]` (see §6.9).
 
+### 6.4.1 The `0x0001` 14-byte tail elements
+
+The tail is contiguous from `+0x6A` (`size = 106 + 14·N`, 2 618 records in 259 chunks of the
+493-document corpus). Each record is `{u32 a, u32 b, u32 c, u16 d}`: [OBSERVED]
+
+| Field | Measurement | Reading |
+|---|---|---|
+| `a` `+0x00` | ascending horizontal positions in EMU; resets to a smaller value 259 times | tab-stop x `[INFERENCE]` |
+| `b` `+0x04` | 529/2 618 (20.2 %) are exact multiples of 12 700 EMU (1 pt); quotients are plausible point sizes (9, 10, 11, 12, 13, 14, 15, 18, 30 … 54) | line height / font metric in EMU `[INFERENCE]` |
+| `c` `+0x08` | equals `a − previous_a` within 2 EMU in 2 041/2 618 (78.0 %); exceptions are records after a reset and frames with absolute stops | width from the previous stop `[INFERENCE]`, not guaranteed |
+| `d` `+0x0C` | `0xFFFF` ×2 174, `0` ×333, `1` ×59, `3` ×36, `2` ×12, `6` ×4 | run terminator plus style index `[INFERENCE]` |
+
+The nine stops of the price-list table (chapter 10 §10.3) are the first run of records with
+`d = 0xFFFF`, and their `c` values reproduce the inter-stop widths exactly.
+
 A parser must derive the element count from the duplicate pair and verify
 `size == base + count · elem`. `[OBSERVED]` for every marker in the table.
 

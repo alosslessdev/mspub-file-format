@@ -51,11 +51,12 @@ Worked examples (from `notes/p98/slices/tables.md`):
 | `pricelst.pub` | 19 × 9 price list | text `[0x2AE, 0x6E9)`, story record at `0x1400` |
 | `INVOICE1.PUB` | 13 × 4 invoice | text `[0x26C, 0x3E1)`, story record at `0xE00` |
 
-**Column count** is carried by the shape record that owns the table: a `0x0001`
-chunk's counted tail consists of 14-byte records (chapter 06 §6.3), and the leading
-run of `0xFFFF`-valued entries gives the column count (9 for the price list, 4 for the
-invoice). The cell count then divides exactly by it. `[OBSERVED on both examples;
-INFERENCE that the rule generalises]`
+**Column count** is carried by the shape record that owns the table: a `0x0001` chunk's
+counted tail consists of 14-byte records `{u32 a, u32 b, u32 c, u16 d}` (chapter 06
+§6.4.1), and the length of the **first run of records whose `d` is `0xFFFF`** is the column
+count — that run is the frame's tab-stop list. Nine stops for the price list, four for the
+invoice; the cell count divides exactly by it. `[OBSERVED on both examples; INFERENCE that
+the rule generalises]`
 
 Rows are not stored explicitly: a row boundary is a `0x0D 0x0A` at a cell boundary
 inside the block. `[INFERENCE]`
