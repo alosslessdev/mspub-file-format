@@ -18,7 +18,7 @@ Regenerate the tables with `python tools/p95_census.py`.
 Contents+u32[0x16] -> D                              directory offset, 0x2BC .. 0x4678
 
 D+0            u16  count                           34 .. 932 = number of chunk records
-D+2            u16  idHwm                           id high-water mark (== max(id), §3.5)
+D+2            u16  idHwm                           saver writes max(id); loader size hint (§3.5)
 D+4            count × 10 bytes:
                  +0  u16  id                       chunk id, unique in the document
                  +2  u16  parentId                 0x00FE/0x00FF for the document record, else a live id
@@ -85,11 +85,12 @@ secondary copy `C:\pwrk\decomp95`), the load/save bridge for this directory:
 2. Then `count` iterations of a 10-byte read (call VA `0x0045E28D`) into a five-word stack
    buffer. The first word indexes the 16-byte-per-entry descriptor table at
    `DAT_00585A74` — the id space starts at `0x100`, consistent with `id` being record `+0`.
-3. The five words are copied into that entry as `{+0 parentId, +2 chunkOffset, +6 flags,
-   +0x0C obfuscated parent}` (`+4` receives the high half of the 32-bit offset). The loader
+3. The five words are copied into that entry as `{+0 parentId, +2 chunkOffset (u32),
+   +6 flags}`; `+0x0C` receives the parent link XOR-obfuscated with the document id, and
+   `+8` (a runtime handle) is not written by the loader. The loader
    then clears **bit 11** of the status word it just stored (`and [entry+6], 0xF7FF`, VA
-   `0x0045E30A`). No other bit is touched at load, so bits other than 11 round-trip.
-   [OBSERVED]
+   `0x0045E30A`). No other bit of the loaded record changes, so bits other than 11
+   round-trip. [OBSERVED]
 4. On save it writes `count` (VA `0x00536E2E`), then `max(id)` (VA `0x00536E7E`), then the
    same 10-byte records in ascending-offset order. Each record copy has bit 6 forced to 1 and
    bits 11 and 15 forced to 0 before it is written (VA `0x00538727`); the source is the
@@ -192,7 +193,7 @@ flags = 0x1440 | (bit3 << 3) | (bit5 << 5) | (bit7 << 7) | (cls << 8)
 | 0–1 | `0x0003` | `0` in all | set/restored by VA `0x0041D0C7` | 2-bit **in-use state**: 0 idle, 1 in use, 2 sticky/never downgraded, 3 assignable. A saved file always has 0 |
 | 2, 4 | `0x0014` | never | — | unused |
 | 3 | `0x0008` | varies (2 330) | kept by loader and writer | "registered in auxiliary reference lists": tested by VA `0x00407C1A` before unregistering from three tables **[INFERENCE]** |
-| 5 | `0x0020` | varies (1 342, only with `cls == 2`) | kept | manager flag; set together with class 3 by VA `0x00538ED6` for a `0x22` record when a document bit is set; no structural correlate **[INFERENCE]** |
+| 5 | `0x0020` | 1 342 records: every instance of `0x1A`, `0x1F`, `0x21`, `0x31`, `0x32`, `0x37`, `0x38`, `0x39` and 12/130 of `0x26`; never on any other marker, never with `cls != 2` | kept | record-class **memory/allocation** flag ("owns a separate payload block") **[INFERENCE]**; no individual setter found |
 | 6 | `0x0040` | **1 in all** | forced 1 by the record writer VA `0x00538727`; set by the save traversal VA `0x0044D3FC`; cleared on pre-existing slots at load (VA `0x0045E143`) | "persisted / live record" |
 | 7 | `0x0080` | varies (3 233) | kept | one boolean; setter VA `0x004502F6` (bit = value), re-written by VA `0x00450083`; no structural correlate **[UNKNOWN]** |
 | 8–9 | `0x0300` | varies 0–3 | kept | 2-bit **class/level**: getter VA `0x004010AD`, setter VA `0x0040827E`, "raise to at least n" VA `0x0040CC5F` |
@@ -225,9 +226,10 @@ Only three parts of the word are therefore format-relevant:
   forcibly clears; the loader also clears bit 11 defensively, so a hand-edited 1 there is
   ignored (VA `0x0045E30A`).
 
-All other bits are opaque manager state. A reader must preserve the word verbatim if it
-rewrites the file, must not reject a record because a variable bit is set, and must not read
-a document property out of bits 3/5/7/8–9. The 13-value domain of §3.6.1 is the projection of
+All other bits are opaque manager state. A reader that rewrites a record must carry its status
+word through unchanged (the writer re-normalises bits 6/11/15 itself, but must not invent the
+remaining bits), must not reject a record because a variable bit is set, and must not read a
+document property out of bits 3/5/7/8–9. The 13-value domain of §3.6.1 is the projection of
 that state for this corpus, not a closed format enumeration. [OBSERVED for the three
 normalised bits and the kind mask; INFERENCE for the per-bit names]
 

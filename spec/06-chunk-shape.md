@@ -148,8 +148,9 @@ is 18 bytes. The four child records have their own size laws, each `26 + n·elem
 For `0x0002`/`0x0003` the tail is a counted array: `u16 count` and a duplicate `u16 count`
 at `+0x74`/`+0x76`, elements of 8 bytes starting at `+0x78` (95/97). `0x0001` uses a
 **contiguous** array of 14-byte elements from `+0x6A` with `N = (size − 106)/14`
-(§6.4.1); two `u16` at `+0x4A` and `+0x50` partition that array into two runs and sum to
-`N` in 735/737 chunks. `0x0000` carries `+2k` with a duplicate pair `u16@+0x5C ==
+(§6.4.1); two `u16` — `A` at `+0x4A` (column stops) and `B` at `+0x50` (rows) — split that
+array into two sub-arrays with `A + B = N` in **747/747** chunks of the Publisher 95/97
+corpora (259 tail-bearing chunks, plus 488 with `N = 0` and `A = B = 0`). `[OBSERVED]` `0x0000` carries `+2k` with a duplicate pair `u16@+0x5C ==
 u16@+0x5E == k` and an element size word `0x0002` at `+0x60`; its elements are **chunk ids
 of sibling records** — 746/746 resolve to an existing id, 656/746 to a sibling.
 `0x0008` appears only in the Publisher 98 corpus; its fixed base is 128 and its trailer is
@@ -158,21 +159,41 @@ the same counted form as `0x0000` — duplicate count at `+0x76`/`+0x78`, elemen
 
 ### 6.4.1 The `0x0001` 14-byte tail elements
 
-The tail is contiguous from `+0x6A` (`size = 106 + 14·N`, 2 618 records in 259 chunks of the
-493-document corpus). Each record is `{u32 a, u32 b, u32 c, u16 d}`: [OBSERVED]
+The tail is contiguous from `+0x6A` (`size = 106 + 14·N`; 2 618 records in 259 chunks of the
+Publisher 95/97 corpora) and each record is `{u32 a, u32 b, u32 c, u16 d}`. The records are
+**two arrays, not one run**: the counts in the fixed part delimit them. `[OBSERVED]`
 
-| Field | Measurement | Reading |
+| Sub-array | Count | Content | Evidence |
+|---|---|---|---|
+| records `0 … A−1` | `A` = u16@`+0x4A` (935 records) | column stops: `a` is an ascending x within the frame, `d == 0xFFFF` | `d == 0xFFFF` 935/935; `a` non-decreasing 676/676; `a[last] ≤ right−left` 259/259 |
+| records `A … A+B−1` | `B` = u16@`+0x50` (1 683 records) | rows: `a` is the cumulative row bottom; `b`/`c` are per-row metrics, `d` a selector | `a` strictly increasing 1 424/1 424; `a[A] < a[A−1]` (the only reset) 259/259; `a[last] == bottom−top` 259/259; `Δa == max(b, c)` 1 248/1 424 |
+
+`A + B = N` in 259/259 tail-bearing chunks. **The column count is `A` from `+0x4A`, not the
+length of the leading `d == 0xFFFF` run**: that run equals `A` in only 134/259 chunks and
+over-counts in 125/259, because row 0 frequently carries `d = 0xFFFF` as well. `[OBSERVED]`
+
+| Field | Column records (`0 … A−1`) | Row records (`A … A+B−1`) |
 |---|---|---|
-| `a` `+0x00` | ascending horizontal positions in EMU; resets to a smaller value 259 times | tab-stop x `[INFERENCE]` |
-| `b` `+0x04` | 529/2 618 (20.2 %) are exact multiples of 12 700 EMU (1 pt); quotients are plausible point sizes (9, 10, 11, 12, 13, 14, 15, 18, 30 … 54) | line height / font metric in EMU `[INFERENCE]` |
-| `c` `+0x08` | equals `a − previous_a` within 2 EMU in 2 041/2 618 (78.0 %); exceptions are records after a reset and frames with absolute stops | width from the previous stop `[INFERENCE]`, not guaranteed |
-| `d` `+0x0C` | `0xFFFF` ×2 174, `0` ×333, `1` ×59, `3` ×36, `2` ×12, `6` ×4 | run terminator plus style index `[INFERENCE]` |
+| `a` `+0x00` | ascending x tab stop | cumulative row bottom; `0 < a ≤ bottom−top`, last value `== bottom−top` |
+| `b` `+0x04` | `[UNKNOWN]` | row text height `[INFERENCE]` |
+| `c` `+0x08` | `[UNKNOWN]` — equals `a[i+1] − a[i]` in only 116/676 pairs | per-row metric `[INFERENCE]` |
+| `d` `+0x0C` | `0xFFFF` ×935 | `0xFFFF` ×1 239, `0` ×333, `1` ×59, `3` ×36, `2` ×12, `6` ×4 |
 
-The nine stops of the price-list table (chapter 10 §10.3) are the first run of records with
-`d = 0xFFFF`, and their `c` values reproduce the inter-stop widths exactly.
+**Row advance.** Between consecutive rows `Δa == max(b, c)` in 1 248/1 424 pairs (50 more
+within 2 000 EMU); the first row is measured from the frame top, where `a[A] == max(b, c)`
+in 224/259 chunks (3 more within 2 000 EMU). The remaining 158 advances exceed both and are
+not explained by the record (chapter 10 §10.7).
 
-A parser must derive the element count from the duplicate pair and verify
-`size == base + count · elem`. `[OBSERVED]` for every marker in the table.
+`[OBSERVED]` for the counts and the geometry identities; the `b`/`c` readings are
+`[INFERENCE]`, and the meaning of the row selector `d` is chapter 10 §10.3.2.
+
+The price-list frame (`pricelst.pub`, chunk `0x0131`) has `A = 9` and `B = 19` (`N = 28`):
+its nine column stops are the nine price columns, and chapter 10 §10.3.1 shows `A · B`
+equals the block's cell count for every four-or-more-cell block.
+
+A parser derives `N` from the record size and `A`/`B` from `+0x4A`/`+0x50`; for the markers
+with a count pair (`0x0000`, `0x0002`/`0x0003`, `0x0008`) it must additionally verify
+`size == base + count · elem`. `[OBSERVED]`
 
 ### 6.4.2 The `0x0008` tail is a counted array of `0x0008` ids
 

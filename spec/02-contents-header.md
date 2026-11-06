@@ -142,9 +142,10 @@ all 493 documents:
 | `+0x10` | `0` | — | — | — | 5/5 |
 
 The page order is the DOCUMENT's page list: first page at DOCUMENT `+0x08`, the rest in the array
-that follows — `+0x74` in P95, `+0x92` in P97 and `+0xBC` in P98 (the +30/+72-byte version
-suffix). Every document in all four corpora has at least five pages, so index 3 always exists.
-[OBSERVED]
+that follows. The version suffix shifts that array: `+0x74` for the P95 layout, `+0x92` for the
+P97 layout (+30 bytes) and `+0xBC` for the P98 layout (+72). A P95-format document stored in a
+97-era corpus (`p97/x/INFLNTLB.PUB`) keeps `+0x74`. Every document in all four corpora has at
+least five pages, so index 3 always exists. [OBSERVED]
 
 The single exception is `p97deluxe/x/PageWiz/aexhbroc.pub`: its page order is
 `0x117, 0x108, 0x109, 0x10A, 0x16D, 0x10B` and `+0x10` holds `0x16D` — index 4. That is exactly
@@ -160,7 +161,7 @@ is not recomputed on save. In Publisher 98 the writer leaves the word at `0`.
    word with the result of the id-translation routine at VA `0x0044A942` and stores it back
    into the buffer (call VA `0x0049D1B8`, store VA `0x0049D1C0`). The open path then uses the
    translated value as the document chunk id: it clears bit 6 of that slot's status word
-   (VA `0x0045F8D4`) and marks the slot in use via VA `0x0041D0C7`.
+   (VA `0x0045F8D4`) and marks the slot in use (call VA `0x0045F8E7` → VA `0x0041D0C7`).
 3. `+0x10` is read from the same buffer and passed through the same translation routine
    (call VA `0x0045F8A4`). On the first-open path it is then used to **select an object**: if
    the id is above `0xFF`, VA `0x00405984` returns its ordinal among its parent's children and
@@ -168,10 +169,11 @@ is not recomputed on save. In Publisher 98 the writer leaves the word at `0`.
    on the object's status word. Values ≤ `0xFF` take the no-selection path.
    [OBSERVED for the data flow; INFERENCE that bit 11 means "selected"]
 
-Consequently `+0x10` is the *page the document opens on* (the saved view/selection), recorded
-as a raw id at save time (the save routine takes it from the current-view global
-`DAT_00588550` when that is a live object of the document, otherwise from element 2 of the
-document's id list — VA `0x00536B54`), and resolved through the id map at open time. The
+Consequently `+0x10` is the *page the document opens on* (the saved view/selection)
+**[INFERENCE from the activation path]**, recorded
+as a raw id at save time (the save routine uses the current-view global `DAT_00588550` when it
+passes a validity test — call VA `0x00536533`, read VA `0x00536540` — otherwise element 2 of
+the document's id list, VA `0x00536B54`), and resolved through the id map at open time. The
 Publisher 97 open function does the same (VA `0x00416A83`; translation call VA `0x0042C59D`).
 
 Neither field is validated: a stale or bogus id is passed through the translator unchanged and

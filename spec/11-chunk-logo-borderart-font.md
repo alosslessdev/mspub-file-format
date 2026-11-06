@@ -97,9 +97,13 @@ Two flavours:
   `size == 0x0E + elementSize·n`. Used by `0x0037` (6), `0x0038` (10), `0x001A` (14),
   `0x001C`/`0x002D`/`0x002E` (8).
 
-**Publisher 97 widens the offset entries from `u16` to `u32`** and doubles the `A` byte
-accordingly (e.g. `0x001F`: `A` 0x04 → 0x08). A reader must key the container parse on the
-chunk's own `A` byte, not on the marker alone. [OBSERVED]
+**Publisher 97 widens the offset entries from `u16` to `u32`**, but the descriptor bytes
+`(A, B)` do **not** change: `0x001E` keeps `(0x08, 0x04)` and
+`0x001F`/`0x0023`/`0x0026`/`0x002A`/`0x0032` keep `(0x04, 0x04)` in Publisher 95, 97
+**and** 98 alike (`0x001E` 493/493 chunks, `0x001F` 493/493). The earlier statement
+that `A` doubles with the width is refuted: the widened offset width is invisible in the
+stamp. A reader must therefore discriminate the two forms by exact fit (§11.6, §11.7),
+never by `A`. [OBSERVED]
 
 ## 11.4 Size rules
 
@@ -129,6 +133,18 @@ chunk's own `A` byte, not on the marker alone. [OBSERVED]
 | `0x0038` | `size == 14 + 10·n` | 15/15 |
 | `0x0039` | `size == 48` (95/97), 56 (98) | 488/488, 5/5 |
 | `0x0027` | `size == 42` | 14/14 |
+| `0x003A` | `u32@+0x04 == u32@+0x08`, `u32@+0x0C == size − 0x16`, `size ≥ 0x16 + 4·(n+1)`, `u32@(0x16+4·n) == size − 0x16`, `u16@+0x10 == 1` (`n` = `u32@+0x04`) | 342/342 |
+| `0x003B` | `size == 26`, `n == 0`, `u32@+0x0C == 4`, `u32@+0x16 == 4` | 12/12 |
+| `0x003F` | `size == 180`, `u32@+0x08 == 1` | 35/35 |
+| `0x004E` | `size == 0x14 + 45·n` (`u16@+0x0E == 45`, `+0x0A == +0x0C`) | 2/2 |
+| `0x004F` | `size == 0x14 + 11·n` (`u16@+0x0E == 11`, `+0x0A == +0x0C`) | 2/2 |
+| `0x0050` | `size == 0x14 + 5·n` (`u16@+0x0E == 5`, `+0x0A == +0x0C`) | 2/2 |
+| `0x0052` | `size == 40 + 34·n` (`u16@+0x16 == 0x1E`, `+0x12 == +0x14`) | 5/5 |
+
+The last five rows are measured over the Publisher 98 corpus only; `0x003A`/`0x003B`/
+`0x003F` over `p97/x` + `p97deluxe/x`. `0x004E`/`0x004F`/`0x0050` share one header whose
+`u16@+0x0E` *is* the element size (§11.11.2) — that field is what makes their element
+size measurable at all, since each occurs with only two, differently sized, instances.
 
 ## 11.5 Font table `0x001E`
 
@@ -158,9 +174,22 @@ Entry *k* runs from `base + off[k]` to `base + off[k+1]`, so contiguity is
   Roman`, `0x20` SWISS for `Arial`, `0x30` MODERN for `Courier`, `0x40` SCRIPT for
   `Comic Book`, `0x50` DECORATIVE for `Wingdings`. Bits 2–3 and bit 7 vary between
   documents for the same face and are **not** fields.
-* **Publisher 98 caveat:** the first prefix byte is not the charset there — `Times New
-  Roman` carries `0xCC`, while `Symbol` still carries `0x02`. The 98 encoding of the pair is
-  `[UNKNOWN]`; only the 95/97 reading above is established.
+* **Publisher 98:** the *second* prefix byte keeps the 95/97 `lfPitchAndFamily` reading
+  (measured per face over the 5 documents: `Times New Roman` `0x94`, `Flexure`/
+  `Imprint MT Shadow` `0xD4`, `Lucida Handwriting` `0xC4`, `Impact`/`Copperplate Gothic
+  Bold` `0xA4`, `Palatino`/`Times` `0x14`, `Symbol` `0x94`; only `Wingdings` moves from
+  `0x84`/`0x80` in 95/97 to `0x94`, i.e. the ROMAN bit is added). The *first* byte is the
+  charset only while it takes `0x00`/`0x01`/`0x02` (those still match the face, and
+  `Symbol`/`Wingdings` are still `0x02`). The 39 P98 font entries carry exactly five
+  first-byte values — `0x00` ×17, `0x02` ×10, `0xCC` ×8, `0x01` ×2, `0x4D` ×2 — and
+  `0xCC`/`0x4D` are not Windows charsets. `0xCC` occurs on `Times New Roman` (5/5),
+  `Impact` (2/2) and `Book Antiqua` (1/1); `0x4D` occurs on
+  `Lucida Handwriting` and `Harrington` in `INFOSHET.JSP` but the **same two faces carry
+  `0x00` in `CHEKLIST.JSP`**. The byte is therefore not a property of the face and not a
+  function of the face name; it is per-document entry state (the two values are the low
+  bytes of `'Ì'` and `'M'`, consistent with stale UTF-16 text). Reading rule: treat
+  `0x00`/`0x01`/`0x02` as the charset and ignore anything else. [OBSERVED for the values
+  and the differential; INFERENCE for the stale-text reading]
 
 Correction to the earlier statement that the table has "no length byte" and a fixed
 stride: the stride is `2 + strlen + 1`, and the Publisher 97/98 tables widen every offset
@@ -168,15 +197,36 @@ to 32 bits, which is why a fixed-stride walk fails on those corpora.
 
 ## 11.6 Border art: `0x001F` and the `.BDR` library
 
-One `0x001F` per document. 81 of 130 Publisher 95 documents carry the empty 16-byte form;
-the rest carry **named border-art styles**. The marker `0x0046` BORDER_ART of the 2000+
-block model does not exist here. The earlier statement that the entry prefix "is 2 or 4
-bytes, discriminator unknown" is superseded: the entry has a fixed layout. [OBSERVED]
+One `0x001F` per document. 87 of the 130 `p95` chunks are the empty 16-byte form, 73 of
+the 108 `p97` and 183 of the 250 `p97deluxe` chunks the empty 26-byte form (all 5 `p98`
+chunks empty); the rest carry **named border-art styles**. The marker `0x0046` BORDER_ART
+of the 2000+ block model does not exist here. [OBSERVED]
+
+### The container: two widths, discriminated by exact fit
+
+`0x001F` is an **offset-table container** in two width forms, and the earlier statement
+that the entry prefix "is 2 or 4 bytes, discriminator unknown" is settled by the
+container, not by the entry: the offset *slots* are `u16` in Publisher 95 and `u32` in
+Publisher 97/98, and the form is detected by exact fit, because `(A, B)` stays
+`(0x04, 0x04)` in all 493 instances (there is no A-byte signal). [OBSERVED]
+
+| Form | Counts | Header | Offsets |
+|---|---|---|---|
+| W16 (Publisher 95) | 130/130 `p95` (43 populated, 87 empty 16-byte) | `u16@+0x04` == `u16@+0x06`, `u16@+0x08` == `size − 0x0E` | `u16[n+1]` at `+0x0E`, relative to `+0x0E` |
+| W32 (Publisher 97/98) | 107 `p97`, 250 `p97deluxe`, 5 `p98` (all `p97`/`p97deluxe`/`p98` except one P95-format file) | `u32@+0x04` == `u32@+0x08`, `u32@+0x0C` == `size − 0x16` | `u32[n+1]` at `+0x16`, relative to `+0x16` |
+
+The slot table is `n+1` slots: the **last slot always equals the end offset** (144/144
+populated chunks, all corpora), and the first slot equals the table size `w·(n+1)` in
+109/144. The remaining 35 chunks put a prefix block before the entry offsets: a
+`0xFFFF`/`0xFFFFFFFF` fence plus an id list whose words occupy consecutive slots
+(`BRCATALG.PUB`: slots `[0x2C, 0xFFFF, 1, 2, … 0x12, 0xC66, 0x1036]`, the 18 ids being one
+block and `0xC66` the second entry). Their entries are located by the *tail* slots, which
+is why a reader that only trusts `offs[0]` sees them as unparsable. [OBSERVED]
 
 ### The `0x001F` entry
 
 ```
-+0x00  u16      1                 constant in 115/115 populated entries
++0x00  u16      entryTag          `1`, or `4` when the entry carries an id list
 +0x02  char[42] nameSlot          NUL-terminated ASCII name; bytes after the NUL are
                                   stale text from a previous longer name
 +0x2C  u16      bandTwips         border band width, twips (80, 120, 200, 240, 480, 720 …)
@@ -186,18 +236,23 @@ bytes, discriminator unknown" is superseded: the entry has a fixed layout. [OBSE
 +0x42  …                          the tiles, each a standard memory WMF
 ```
 
-Verified over the whole corpus: **115 populated entries, 920 tiles, 920/920 tiles begin
-`01 00 09 00 00 03`** (a `METAHEADER`, type 1, header 9 words, version `0x0300`). Twenty
-further entries live in `0x001F` chunks whose entry table parses under neither width form
-(e.g. `BRCATALG.PUB`, whose first entry is a `u16` id list); those remain `[UNKNOWN]`. The
-eight slots are the border sides **clockwise from the top-left**: TL, top, TR, right, BR,
-bottom, BL, left; the offsets are **not** monotonic and the same tile is often shared by two
-slots, so a reader must take each tile's extent from its own WMF header, never from the gap
-to the next offset. [OBSERVED]
+The entry prefix is **always two bytes**; it is the offset *slots* that are 2 or 4 bytes
+wide. Measured over the whole corpus: **144 populated chunks, 139 name-carrying entries,
+42 distinct names, 920 tiles, 920/920 tiles begin `01 00 09 00 00 03`** (a `METAHEADER`,
+type 1, header 9 words, version `0x0300`). The eight slots are the border sides
+**clockwise from the top-left**: TL, top, TR, right, BR, bottom, BL, left; the offsets are
+**not** monotonic and the same tile is often shared by two slots, so a reader must take
+each tile's extent from its own WMF header, never from the gap to the next offset.
+[OBSERVED]
 
-Worked example — `p97/x/PAGEWIZ/AWARD.PUB` `0x001F` id `0x1212`: name `Chain Link`,
-`band = 120`, tile offsets `(642, 1214, 1214, 1782, 2354, 2926, 3506, …)`, the top/TR pair
-sharing offset 1214.
+Worked example — `p95/x/PAGEWIZ/AWARD.PUB` `0x001F` id `0x0101`, size 3 090, W16 with
+`n = 4`: slots `(2, 0, 0xFFFF, 0x0A, 0xC04)`, entry 0 at `+0x18` (`entryTag` 1, name
+`Waveline`), record at `+0x44` = `400, 400, 400` twips, tile offsets
+`(66, 476, 816, 1 226, 1 566, 1 976, 2 316, 2 726)`, first tile at `+0x5A`. The same
+document in `p97deluxe/x/PageWiz/` is the W32 form: size 3 108, `n = 4`, slots
+`(2, 0, 0xFFFFFFFF, 0x14, 0xC0E)`, entry at `+0x2A`, first tile at `+0x6C` — the byte
+content of the name/record/tiles is unchanged, only the slot width and the header shift by
+8.
 
 ### The `PUBBRD/*.BDR` library
 

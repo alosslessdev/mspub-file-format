@@ -41,42 +41,138 @@ The Publisher 95/97 text pool (chapter 13 §13.14 — the byte range
 | `0x0C` | frame-block separator (start a new block) |
 | `0x0D 0x0A` | paragraph break within a cell |
 
-Splitting the pool on `0x0C` and each block on `0x0F` finds **255 blocks with four or
-more cells in 72 documents, 6 528 cells total**. `[OBSERVED]`
+Splitting the pool on `0x0C` and each block on `0x0F` gives **255 blocks with four or more
+split fields in 72 documents (6 528 fields)**. The last field of every such block is the
+paragraph break that follows the final `0x0F`, not a cell: after dropping it the 255 blocks
+hold **6 273 cells** (exactly one field dropped per block, 255/255). `[OBSERVED]`
 
 Worked examples (from `notes/p98/slices/tables.md`):
 
-| Document | Table | Evidence |
-|---|---|---|
-| `pricelst.pub` | 19 × 9 price list | text `[0x2AE, 0x6E9)`, story record at `0x1400` |
-| `INVOICE1.PUB` | 13 × 4 invoice | text `[0x26C, 0x3E1)`, story record at `0xE00` |
+| Document | Table | `0x0001` chunk | `A` cols | `B` rows | Evidence |
+|---|---|---|---|---|---|
+| `pricelst.pub` | 19 × 9 price list | `0x0131` | 9 | 19 | text `[0x2AE, 0x6E9)`, story record at `0x1400` |
+| `INVOICE1.PUB` | 13 × 4 invoice | `0x013A` | 4 | 13 | text `[0x26C, 0x3E1)`, story record at `0xE00` |
 
-**Column count** is carried by the shape record that owns the table: a `0x0001` chunk's
-counted tail consists of 14-byte records `{u32 a, u32 b, u32 c, u16 d}` (chapter 06
-§6.4.1), and the length of the **first run of records whose `d` is `0xFFFF`** is the column
-count — that run is the frame's tab-stop list. Nine stops for the price list, four for the
-invoice; the cell count divides exactly by it. `[OBSERVED on both examples; INFERENCE that
-the rule generalises]`
+### 10.3.1 Columns and rows are both stored in the `0x0001` tail
 
-Rows are not stored explicitly: a row boundary is a `0x0D 0x0A` at a cell boundary
-inside the block. `[INFERENCE]`
+The counted tail of `0x0001` (14-byte records `{u32 a, u32 b, u32 c, u16 d}`, chapter 06
+§6.4.1) is **two arrays, not one run**. Two `u16` counts in the fixed part of the record
+delimit them:
 
-## 10.4 Consequence for writers
+| Field | Width | Meaning | Evidence |
+|---|---|---|---|
+| `+0x4A` | u16 | `A`, number of column-stop records | `A + B == N` 259/259 tail-bearing chunks |
+| `+0x50` | u16 | `B`, number of row records | `A·B` equals the block's cell count 255/255 |
 
-* **Round-trip**: re-emit the text pool verbatim, including `0x0F`/`0x0C`, plus the
-  story records — no table-specific code is needed.
-* **Create**: emit the cell text separated by `0x0F`, blocks separated by `0x0C`, and
-  set the column count in the owning `0x0001` record's 14-byte tail. Cell borders, fills
-  and spans, if drawn at all, are ordinary shapes in the shape layer.
-* A reader that wants to *detect* tables uses the separators, not geometry.
+`N == (size − 106)/14` and `A + B == N` in **259/259** chunks with `N > 0`; those 259 chunks
+hold 935 column records and 1 683 row records (2 618 total). The five Publisher 98 `0x0001`
+chunks are 114 bytes (the Publisher 98 insertion, chapter 06 §6.3) and carry no 14-byte
+tail; Publisher 98 text lives in Quill (chapter 13). `[OBSERVED]`
 
-## 10.5 Open
+| Sub-array | Count | Record content | Evidence |
+|---|---|---|---|
+| records `0 … A−1` | `A` | column stops: `a` is an ascending x within the frame, `d == 0xFFFF` | `d == 0xFFFF` 935/935; `a` non-decreasing and `a[last] ≤ right−left` 259/259 |
+| records `A … A+B−1` | `B` | rows: `a` cumulative row bottom, `b` row text height, `c` per-row metric, `d` selector | `a[last] == bottom−top` 259/259; `a` strictly increasing and `0 < a ≤ bottom−top` 259/259 |
 
-* Layout of the 14-byte records in the `0x0001` tail beyond the leading `0xFFFF` run
-  (which is the column count).
-* Whether a row-level attribute (header row, banding) exists anywhere — no candidate
-  field has been found.
-* Cell spans/merges: no evidence in the corpus; a merged cell is probably an absent
-  cell plus geometry in the shape layer. `[UNKNOWN]`
+* **Column count is `A = u16@+0x4A`, not the length of the first `0xFFFF` run.** That run
+  equals `A` in 134/259 chunks and over-counts in 125/259, because it continues into the
+  row array whenever row 0 carries `d = 0xFFFF`. `[OBSERVED]`
+* **Row count is `B = u16@+0x50`.** For every one of the 255 four-or-more-cell blocks,
+  exactly one `(A,B)` pair among the document's `0x0001` chunks satisfies
+  `A·B == cell count`; **255/255 blocks** satisfy it and the pair is **unique per block**
+  (255/255). The identity also holds for all 259 tail-bearing chunks against some block
+  (including 1–3-cell blocks), 259/259. `[OBSERVED]`
+* **Row advance.** Over consecutive rows, `Δ = a[i] − a[i−1]` equals `max(b[i], c[i])` in
+  1 248/1 424 pairs (50 more within 2 000 EMU); the first row's `a`, measured from the
+  frame top, equals `max(b[0], c[0])` in 224/259. The 158 residual advances exceed both,
+  and the extra distance is not explained by the record (§10.7). Reading `b` as text
+  height and `c` as the nominal line/row metric is `[INFERENCE]`; the relations are
+  `[OBSERVED]`.
+
+### 10.3.2 The per-row selector `d`
+
+In the 1 683 row records, `d` takes `0xFFFF` ×1 239, `0` ×333, `1` ×59, `2` ×12, `3` ×36
+and `6` ×4. `0xFFFF` behaves as the default/inherit value: the row array is entirely
+`0xFFFF` in 107/259 chunks. Every non-`0xFFFF` value is smaller than the element count
+(`n = u16@+0x04`) of the document's `0x001A` singleton and of its `0x001C` singleton in
+**152/152** chunks that use one, so `d` is consistent with a **document-local index into
+one of those tables**; the `0x001A`/`0x001C` record interiors are still `[UNKNOWN]`
+(chapter 06 §6.3), and `d` may equally be a style field of the row record.
+`[OBSERVED for the counts; INFERENCE for the index]`
+
+## 10.4 Merges and spans: no encoding
+
+A merged cell would have to make a row shorter than `A` (omitted separators) or carry a
+per-cell span value. Neither exists:
+
+* **No short row.** In all 255 four-or-more-cell blocks the cell count is exactly `A·B`
+  for the unique `(A,B)` pair above (255/255, zero remainders), so each of the 6 273 cells
+  is one of `B` complete rows of `A` cells.
+* **No per-cell metadata.** The pool has no record between cells — `0x0F` is the entire
+  cell structure — and the row record (chapter 06 §6.4.1 / §10.3.1) is per-row, not
+  per-cell.
+
+A "merged" heading such as `pricelst.pub` row 0 (`Category Name` followed by eight empty
+cells) is therefore a normal `A`-cell row padded with empty cells; the merge is purely
+visual and is reproduced by the empty cells, not by a span attribute. `[OBSERVED]`
+
+## 10.5 Row attributes: exhaustive scan (negative)
+
+Population and method: the 259 tail-bearing `0x0001` chunks are exactly the `0x0001` shapes
+of the 72 documents that contain a four-or-more-cell block. Enumerating every byte of those
+chunks outside chapter 06's field table (74 offsets: 35 constant corpus-wide, 39 with a
+non-constant value set) and every byte of their `0x001D` story records (fully mapped by
+chapter 13 §13.14.2) finds no field with the values `{0,1}`, no bit tied to the only
+observable row-0 style change, and no array of length `B` outside the row sub-array, so no
+header-row or banding flag exists in this record family.
+
+* **No boolean field.** None of the 74 unaccounted chunk bytes, and no `u16`/`u32` at any
+  offset within that unaccounted region, takes both values `0` and `1`. The two-valued
+  `u16` fields are
+  `+0x16` `{0,4}`, `+0x26` `{0,0x81}`, `+0x3E`/`+0x40`/`+0x42`/`+0x44` `{0,0x39}` and
+  `+0x48` `{0x0E,0x1E}`; 35 byte offsets are constant and 26 take more than two values. A
+  bit-level scan of the same bytes finds no bit that separates the 95 chunks whose row 0
+  carries a different selector `d` from the body.
+* **No array of length `B` outside the row sub-array.** The `0x0001` size law is exactly
+  `106 + 14·N`, with no spare bytes. The story records' `bound[]`/`id[]` arrays have
+  `n = 0…13` entries (`n = 1` in 1 246/1 464 records) while `B` reaches 30 in this
+  population, so they cannot be per-row.
+* **The only per-row storage is the row record**, whose `a`/`b`/`c` are geometry
+  (§10.3.1) and whose `d` is the selector of §10.3.2. `d` is not a header flag: `0`
+  occurs on non-first rows (`pricelst.pub` rows 0, 7 and 13; `BRCATALG.PUB` rows 6–8) and
+  row 0 carries `0xFFFF` in 125/259 chunks. It is not a banding flag: no chunk's row
+  sequence is a strict two-value alternation (0/259).
+
+Hence a header row or row banding is not a record flag anywhere in this family; it can
+only be a property of the style `d` selects, and the blocking fact is the
+`0x001A`/`0x001C` record interior. `[OBSERVED for the scan; INFERENCE for the style
+reading]`
+
+## 10.6 Consequence for writers
+
+* **Round-trip**: re-emit the text pool verbatim (including `0x0F`/`0x0C`), the story
+  records, and the `0x0001` tail — `A` at `+0x4A`, `B` at `+0x50`, then `A` column records
+  and `B` row records. The row records are not derivable from the text (they carry row
+  geometry and the selector `d`), so a writer must preserve them rather than regenerate
+  them.
+* **Create**: emit the cell text separated by `0x0F`, blocks separated by `0x0C`, write
+  `A` column stops with `d = 0xFFFF` and `B` row records whose `a` accumulates to the frame
+  height, and set the two counts. Cell borders, fills and spans, if drawn at all, are
+  ordinary shapes in the shape layer.
+* A reader detects a table from the separators and recovers columns/rows from the
+  `0x0001` counts, not from geometry.
+
+## 10.7 Open
+
+* **What `d` selects** — the target table (`0x001A` or `0x001C`, chapter 06 §6.3, or a
+  style field in the row record) and the exact `b`/`c` metrics. Blocking fact: the
+  `0x001A`/`0x001C` record interior is undecoded. Experiment: change one property at a time
+  (bold on one row, then a larger font size), save, and diff the style array and the row
+  record. `[UNKNOWN]`
+* **Header rows and banding** — no record flag (§10.5); they can only be style properties,
+  so they are blocked by the same `0x001A` record interior. `[UNKNOWN]`
+* **The 158 residual row advances that exceed `max(b,c)` by more than 2 000 EMU** (126
+  consecutive rows + 32 first rows) — paragraph space-before/after is not stored in the
+  row record; same controlled-edit experiment. `[UNKNOWN]`
 * The lattice detector is in `tools/p98_tables.py` (`lattice` subcommand) if a future
   corpus contains a real shape-grid table.

@@ -65,6 +65,8 @@ CHECKS = [
     "record_length_byte", "record_min_size", "record_0x22_is_18", "quill_list_terminates", "object_link_resolves",
     "group_size_equation", "group_count_pair", "group_bbox_ordered",
     "shape_colour_ref", "shape_text_colour", "shape8_tail",
+    "header_document_id", "header_post_header_offset", "header_page_id_resolves",
+    "directory_id_hwm_is_max_id", "directory_flags_writer_bits",
 ]
 
 
@@ -122,6 +124,29 @@ def check_file(path: str, stats: collections.Counter, failures: list):
     stats["doc_delta_%d" % delta] += 1
     width = struct.unpack_from("<I", dc.data, 0x14)[0]
     height = struct.unpack_from("<I", dc.data, 0x18)[0]
+
+    # Contents header cross-references (spec 02 §2.4 / §2.4.1).
+    hdr_doc_id = struct.unpack_from("<H", d, 0x0E)[0]
+    if hdr_doc_id != dc.id:
+        fail("header_document_id", "%#06x != %#06x" % (hdr_doc_id, dc.id))
+    post_header = struct.unpack_from("<I", d, 0x1A)[0]
+    if post_header != 0x22:
+        fail("header_post_header_offset", "%d != 34" % post_header)
+    view_page = struct.unpack_from("<H", d, 0x10)[0]
+    page_ids = {c.id for c in doc.of_type(0x14)} | {c.id for c in doc.of_type(0x41)}
+    if view_page != 0 and view_page not in page_ids:
+        fail("header_page_id_resolves", "%#06x is not a PAGE id" % view_page)
+    # Directory header: the writer computes D+2 as max(id) (spec 03 §3.5).
+    dir_off = doc.trailer_offset
+    if ids:
+        hwm = struct.unpack_from("<H", d, dir_off + 2)[0]
+        if hwm != max(ids):
+            fail("directory_id_hwm_is_max_id", "%#06x != %#06x" % (hwm, max(ids)))
+    # Flags bits the writer normalises (spec 03 §3.6.2): bit 6 set, bits 11/15 clear.
+    for c in doc.chunks:
+        if c.flags & 0x8840 != 0x0040:
+            fail("directory_flags_writer_bits", "id=%#06x flags=%#06x" % (c.id, c.flags))
+            break
 
     for c in doc.of_type(0x14):
         if len(c.data) < 0x24:
