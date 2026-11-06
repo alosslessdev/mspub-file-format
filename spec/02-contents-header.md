@@ -177,43 +177,60 @@ Complete dump (`p95/x/MSPUB.PUB`, variant `0x749C`; the only bytes that can diff
 (`*` marks the only variable bytes; `0x23E` is not part of the block — it is the text store's
 signature `0xF0DE` followed by its own 46-byte sub-header.)
 
-### 2.5.1 Structure: per-type default cells
+### 2.5.1 Structure: the shape-class descriptor table
 
-The block is a heterogeneous defaults area, not a record array, but three cells in it are
-provably the **per-type descriptor pair** stored at chunk `+2/+3` (chapter 04), each inside an
-8-byte cell of the shape `{u8 A, u8 B, u16 tag, u32 value}` [OBSERVED]:
+The block opens with a **table of the `(A, B)` descriptor pairs of the eight basic shape
+classes**, in marker order, one cell per type [OBSERVED: 130/130 files, 130/130 cell checks]:
 
-| block offset | cell | chunk type whose (`A`, `B`) it carries | chunks |
-|---|---|---|---|
-| `0x26` | `5e 5c | 09 00 | 02 00 00 00` | `0x0000` → (0x5E, 0x5C) | 909/911 of the 102-byte form |
-| `0x2E` | `60 60 | 01 00 | 0e 00 00 00` | `0x0001` → (0x60, 0x60) | 130/130 |
-| `0x36` | `9c 74 | 01 00 | 08 00 6a 01` | `0x0002` → (0xA?, 0x74) | A tracks the file |
-| `0x40` | `9e 74 | 01 00 | 08 00 6a 01` | `0x0002` again, first word + 2 | — |
+| block cell | cell bytes | type | `(A,B)` of every chunk of that type | varies per file? |
+|---|---|---|---|---|
+| `0x26` | `5e 5c` | `0x0000` | (0x5E, 0x5C) | no |
+| `0x2E` | `60 60` | `0x0001` | (0x60, 0x60) | no |
+| `0x36` | `9c 74` | `0x0002` | (0xA?, 0x74), A ∈ {0x8C, 0x90, 0x98, 0x9C} | **yes** |
+| `0x40` | `9e 74` | `0x0003` | (0xA?+2, 0x74), A ∈ {0x8E, 0x92, 0x9A, 0x9E} | **yes** |
+| `0x4A` | `3b 3b` | `0x0004` | (0x3B, 0x3B) | no |
+| `0x52` | `3e 3e` | `0x0005` | (0x3E, 0x3E) | no |
+| `0x5A` | `39 35` | `0x0006` | (0x39, 0x35) | no |
+| `0x62` | `29 29` | `0x0007` | (0x29, 0x29) | no |
 
-The remaining `A A` cells in the block (`04 04`, `08 08`, `10 10`, `16 16`, `18 18`, `24 24`,
-`29 29`, `2c 2c`, `3b 3b`, `3e 3e`, `39 35`, `70 70`, `c8 c8`, `78 6a`) are the same kind of
-descriptor cell for record types that this corpus does not contain as chunks, plus the
-DOCUMENT's own descriptor pair `0x6A78` at `0x0D6`. Nothing in the P95 corpus indexes these
-cells by offset, and no chunk payload references the block. [INFERENCE]
+Each cell is the little-endian `u16` `B<<8 | A`, i.e. the two bytes that every chunk of that
+marker carries at `+2/+3`. The table is written at save time from the document's own chunks, so
+it is a *cache of a per-document constant*, and it is the reason the pair at chunk `+2/+3` was
+long mistaken for a length: it is a per-type, per-document descriptor, not a size.
+
+**The four block variants are therefore not noise.** Only types `0x0002` and `0x0003` have a
+first descriptor byte that varies between documents, and on every file `A(0x03) = A(0x02) + 2`.
+The 4 variants correspond exactly to the 4 observed values of `A(0x02)`:
+
+| `A(0x02)` / `A(0x03)` | documents | cell bytes at `0x36` / `0x40` |
+|---|---|---|
+| 0x9C / 0x9E | 50 | `9c 74` / `9e 74` |
+| 0x90 / 0x92 | 64 | `90 74` / `92 74` |
+| 0x98 / 0x9A | 15 | `98 74` / `9a 74` |
+| 0x8C / 0x8E | 1 | `8c 74` / `8e 74` |
+
+The remaining `A A` cells further on (`04 04`, `08 08`, `10 10`, `16 16`, `18 18`, `24 24`,
+`c8 c8`, `70 70`, …) and the DOCUMENT's own pair `0x6A78` at `0x0D6` follow the same idea for
+record classes that are not shape chunks; nothing in the P95 corpus indexes those cells by
+offset, and no chunk payload references the block. [INFERENCE]
 
 Two consequences that matter to a reader:
 
-1. The pair at chunk `+2/+3` is a **per-document, per-type constant** recorded in the header at
-   save time — not a per-chunk length and not an offset.
-2. A reader must **not** treat the block as chunk data. It is fixed for a given writer build and
-   varies only in the `0x36`/`0x40` cell, which is a pair of equal-shaped values 2 apart (most
-   plausibly "saved value / current value" of one document-wide metric). Semantics [UNKNOWN];
-   the experiment is to change one document-wide default at a time (grid, ruler origin, snap,
-   default font size) and diff the block.
+1. Do **not** derive a chunk's extent from anything in this block. It is fixed for a given
+   writer build apart from the two shape-class cells.
+2. Do **not** treat the block as chunk data: it has no marker, no length and no directory
+   record. Its extent is exactly `[0x22, 0x23E)` — the two header constants `34` and `574`.
 
 ## 2.5.2 Notes on the earlier reading
 
-Two errors in the previous revision of this chapter are corrected here:
+Three errors in the previous revision of this chapter are corrected here:
 
-* `0x40` was listed as `0` in every file. It is not: it is the second copy of the `0x02`
-  descriptor cell and equals the `0x36` value **+ 2** (`0x749E` for `0x749C`, etc.).
-* The block was described as ending at `0x41`. It ends at `0x23E`; the `0x22…0x41` area is only
-  its first quarter.
+* `0x40` was listed as `0` in every file. It is not: it holds the descriptor pair of type
+  `0x0003` and equals `0x749E` when `0x36` holds `0x749C`.
+* The block was described as ending at `0x41`. It ends at `0x23E`; `0x22…0x41` is only its
+  first quarter.
+* `0x36` was described as "type 0x02's pair, A tracks the file". It does — but the second
+  cell at `0x40` is a *different type's* pair (`0x0003`), not a copy of the first.
 
 ## 2.6 The `+0x1E` / `+0x20` flag words
 
