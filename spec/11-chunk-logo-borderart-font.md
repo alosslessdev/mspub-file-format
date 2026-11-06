@@ -325,17 +325,18 @@ more corpus. [OBSERVED]
 
 ## 11.11 Publisher-98-only document records
 
-Six markers occur in the Publisher 98 publications and nowhere else. Three are fully
-framed; three are not. All are direct children of the DOCUMENT. [OBSERVED, 5 documents]
+Six markers occur in the Publisher 98 publications and nowhere else. All six are now
+framed; the remaining unknowns are field semantics, listed in §11.13. All are direct
+children of the DOCUMENT except `0x004C`/`0x0052`, which hang off `0x0045`. [OBSERVED, 5 documents]
 
 | Marker | Size | Layout |
 |---|---|---|
 | `0x0040` | 28, fixed | `u16 0x0202` at `+0x04`, zeros elsewhere; 4 instances, byte-identical |
 | `0x0041` | 40, fixed | **a page slot**, not a distinct feature — see below |
 | `0x0045` | 8, fixed | `u16 id of the 0x004C chunk` at `+0x04`, `u16 id of the 0x0052 chunk` at `+0x06`; 5/5 |
-| `0x0043` | 20 / 24 / 34 / 50 | framing `[UNKNOWN]` — no counted-array fit reproduces all four sizes |
-| `0x004C` | 40 / 52 / 118 / 604 | framing `[UNKNOWN]` — grows with the document, no counted fit |
-| `0x0052` | 40 / 74 / 550 / 3236 | framing `[UNKNOWN]` — grows with the document, no counted fit |
+| `0x0043` | 20 + 2·N | `N` at `+0x0A`, duplicate `+0x0C`; `N` `u16` chunk ids from `+0x14`. The ids are the top-level objects of every page except the first (the shape-gallery page), excluding `0x002C` — set-equal 5/5 |
+| `0x004C` | 40 + 6·N | `N` at `+0x12`, duplicate `+0x14`; `N` `u32` 16.16 values at `+0x24`, sentinel `0x7FFFFFFF` at `+0x24+4N` (10/10 across both markers), then `N` `u16` ids at `+0x28+4N` — **109/109 ids resolve** to real chunks. Maps an id to a shape; the values equal the `u32` at `0x0008+0x58` |
+| `0x0052` | 40 + 34·N | `N` at `+0x12`, duplicate `+0x14`; `N` `u32` keys, the same `0x7FFFFFFF` sentinel, then `N` × 30-byte records (the keys are a superset of the `0x004C` value array, 5/5) |
 
 ### `0x0041` is a page slot
 
@@ -401,5 +402,5 @@ The 26-byte empty form shared by `0x003A`/`0x003B` is the same container shape a
 | `0x0031` fourth instance (342 documents) | `[UNKNOWN]` role — no `0x0032` child, not referenced from `+0x48/+0x56/+0x58` | diff a document before and after adding a user design |
 | `0x0032` non-monotone offset variant | `[UNKNOWN]` — 4 instances in `p97/x/PAGEWIZ/{JAZZY,PLAIN}.PUB` with `offs[0] = 5` | diff a save that adds one object name |
 | Publisher 98 font prefix byte | `[UNKNOWN]` — `0xCC` for `Times New Roman` where 95/97 write `0x00` | needs a P98 document authored outside the CD samples |
-| `0x0043` / `0x004C` / `0x0052` framing | `[UNKNOWN]` — sizes 20/24/34/50, 40/52/118/604, 40/74/550/3236; no counted-array or u32-offset fit reproduces all instances of any of them | decode the reader in `MSPUB.M14`, or diff a P98 document after adding one text frame |
+| `0x0052` 30-byte record semantics | `[UNKNOWN]` — each record starts `u32 1`, the key, two per-document pointer-like `u32`s, a `u16` in {16, 64, 80}, then `0xCB18967C` (= f32 −9 999 996.0) twice and f32 18.0/0.0 | needs a P98 document with more than one text frame |
 | `0x004E` / `0x004F` / `0x0050` framing | `[UNKNOWN]` — 2 instances each (290 B, 207/306 B, 110/155 B), all under a `0x000A` shape in `CHEKLIST.JSP` | same |

@@ -515,9 +515,27 @@ by a constant offset).
 
 | Item | Status | Experiment |
 |---|---|---|
-| field-id meanings in the descriptor stream | `[UNKNOWN]` | decode the id→(type, offset, width) table at `DAT_40463ADC` in `QS98.DLL` |
+| field-id meanings in the descriptor stream | `[UNKNOWN]` | decode the table at `DAT_40463ADC` — entry shape measured in §13.17 |
 | text → shape linkage | `[UNKNOWN]` — narrowed: the run tables partition the character array (6 `FDPP` / 3 `FDPC` ranges in `CHEKLIST.JSP`), and the 95/97 pool splits into `0x0C`-terminated stories (28 stories vs 26 `0x0000` chunks in `CATALOG.PUB`), but no chunk stores the pool bounds as a `u32` | author a document with two text frames whose contents are swapped, save, and diff the run tables |
 | run-level formatting in the 95/97 pool | `[UNKNOWN]` | author one bold and one underlined paragraph, save, diff the store byte by byte (§13.14.3) |
 | `MCLD` sub-block interior | `[UNKNOWN]` | dump the three corpus `MCLD` chunks; correlate the 12/134-byte pair with object counts |
 | `BTEP`/`BTEC` property identity | `[UNKNOWN]` | compare a document with table borders against one without |
 | `TCD ` cell interior | `[UNKNOWN]` | dump a 2×2 table document; the container framing is already fixed (§13.10) |
+
+## 13.17 Lead: the descriptor field table in `QS98.DLL`
+
+The remaining unknown is the meaning of the 11-bit field ids in the descriptor grammar
+(§13.6). The decoder indexes a table at **VA `0x40463ADC`** (image base `0x40400000`,
+RVA `0x63ADC`, in `.rdata`). Measured shape of that table, so the next pass does not have to
+rediscover it: [OBSERVED]
+
+* stride **8 bytes**, two 32-bit pointers per entry; entry 0 is `(0, 0x40463898)`;
+  the following first-pointers are `0x40462F60`, `0x40462FC0`, `0x40463020`, `0x40463068`, …
+* each entry's first pointer targets a structure that starts with a pointer, then a `u32`
+  count, then a `u16` array — e.g. entry 1: count `0x23` (35) followed by
+  `0x0200, 0x0202, 0x0203, 0x0204, 0x0205, 0x0206, 0x0208, 0x020A, …`
+* each entry's second pointer targets a structure holding further pointers and `0xFFFF`
+  markers — the same idiom as the document-level containers of chapter 11.
+
+No semantic mapping is published, because entry semantics were not proven; the values above
+are a starting point, not a field list.

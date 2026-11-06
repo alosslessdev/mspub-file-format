@@ -146,8 +146,9 @@ Both are enforced by `tools/validate.py` (`image_data_length_prefix`, `image_dat
 * Whether non-WMF payloads are possible: none occur in the corpus, and the binary's
   graphics-import filters (`SHARED/GRPHFLT/*.DLL`: BMP, JPEG, PCX, TIFF, PCD) convert to
   WMF on import, which is consistent with "always WMF". `[INFERENCE]`
-* `0x0039` is image-bearing but only 48/56 bytes long — it looks like a shape that
-  *references* a picture rather than owning geometry; its role is `[UNKNOWN]`.
+* `0x0039` is a 48-byte (56 in 98) document-level record with no image children — the
+  earlier suggestion that it is image-bearing was based on a misread marker (`39` decimal
+  = `0x27`); its role is documented in chapter 11 and its *purpose* is `[UNKNOWN]`.
 * The 24 bytes added to the Publisher 98 `0x0002`/`0x0003` fixed part — `[UNKNOWN]`. The
   five P98 publications carry one gallery instance each and all five payloads are
   byte-identical, so there is no differential. Landmarks: the `0xFFFFFFFF` word at `+0x70`
