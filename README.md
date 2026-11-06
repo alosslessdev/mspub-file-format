@@ -59,11 +59,12 @@ Publisher 97 CD 250, Publisher 97 disk set 108, Publisher 98 CD 5 — the three
 | document chunk found | 493/493 |
 | PAGE size == base + 2·count | 712/712 (P95), 2016/2016 (P97), 12/12 (P98) |
 | DOCUMENT size rule with version delta 0/30/72 | 493/493 |
-| directory parents resolve, ids unique, extents cover stream | 484/484 |
+| directory parents resolve, ids unique, extents cover stream | 493/493 |
 | IMAGE_DATA length prefix + WMF signature | 527/527 |
 | full structural validator | **0 violations / 493 files** |
 | Quill payload layouts (`p97_quill_validate.py`) | 0 violations / 5 documents |
 | named-field coverage of payload bytes (P95) | 60.1 % (39.9 % preserved verbatim) |
+| chunk markers with a layout entry | 54 of 54 |
 
 ## Method
 
