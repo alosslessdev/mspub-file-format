@@ -2,9 +2,10 @@
 
 Consolidated registry of the enumerated values used across the format. Each entry
 is measured over the 493-document corpus unless marked from binary evidence. Where
-the value domain is known but the meaning of an individual value is not, the
-semantics are marked `[UNKNOWN]` — a reader must preserve unknown values
-unchanged.
+the value domain is known but the meaning of an individual value is not, the semantics carry
+the UNKNOWN tag — a reader must preserve unknown values unchanged. (Tags are written in
+brackets on claims; this preamble names them without brackets so a marker count finds only
+real unresolved claims.)
 
 ## 17.1 Container and header enums
 
@@ -69,8 +70,13 @@ corpora (counts and per-version presence in
 | `0x0022` | 18-byte "MO" record | 08, 12 |
 | `0x0047` | palette (98) | 09 |
 
-`[UNKNOWN]` for the exact object class of every marker not listed with a chapter
-chapter reference; those markers have size rules only (chapter 12).
+Every marker in the closed `0x0000`–`0x0052` domain has a chapter reference
+above: the remaining 98-only markers (`0x0040`, `0x0043`, `0x0045`, `0x004C`,
+`0x004E`, `0x004F`, `0x0050`, `0x0052`) are sized and framed in chapter 11
+§§11.11–11.11.2, the 97-only markers (`0x002F`, `0x003A`, `0x003B`, `0x003F`)
+in chapter 11 §11.12, and `0x0027`/`0x002B`/`0x002C`/`0x0036` in chapters 08/11.
+What stays open is field semantics inside `0x004E`/`0x0052`, tracked in
+chapter 11 §11.13 — not the object class. [OBSERVED]
 
 ## 17.3 Page
 
@@ -79,8 +85,11 @@ chapter reference; those markers have size rules only (chapter 12).
 | `pageKind` | PAGE `+0x18` (95/97), `+0x1C` (98) | `0` ×2604, `2` ×80, `4` ×80, `1` ×9 |
 
 `0` = ordinary page, `2` = composites the following layer page's objects into its own
-z-order, `4` = layer page with an empty child list, `1` = behaves like `0` in the
-corpus (`[UNKNOWN]` distinction). See chapter 05.
+z-order, `4` = layer page with an empty child list, `1` = an otherwise ordinary page
+whose "Ignore Background" toggle (bit 0, the third flag of the `+0x18` word) is on:
+it keeps its own child list, which is why it renders like `0`. See chapter 05 §5.4
+(accessors VAs `0x004D2E40`/`0x0041F8CC`/`0x0041F895`, toggle VA `0x004D769D`).
+[OBSERVED, binary]
 
 ## 17.4 Document
 

@@ -145,16 +145,25 @@ decoder before rendering.
 ## 6. Custom-colour list elements (`0x0037`)
 
 The document-level colour list (chapter 11 §11.10) stores 6-byte elements
-`RR GG BB 20 flag`. This is **not** the 32-bit reference form: it is a bare RGB triple in
-`R,G,B` order plus a literal-RGB tag byte and a flag. The flag takes
-{0, 1, 2, 8, 9, 0x18} over the corpus; its meaning is `[UNKNOWN]`. `0x0038` would carry
-10-byte elements but no shipped document populates one. [OBSERVED]
+`RR GG BB 20 s0 s1`: a bare RGB triple in `R,G,B` order, the literal-RGB tag byte
+`0x20`, and a two-byte stamp. The stamp takes `{00 00, 01 00, 02 00, 08 00,
+09 00, 18 00}` (little-endian `0, 1, 2, 8, 9, 0x18`) over 63 elements in 54
+populated instances; `s1` is `0x00` in 63/63. The RGB is unambiguous; the stamp
+is a carried-along writer field with no reader in the shipped binaries (scan
+scope: every function of `MSPUB.EXE` 95/97/98 that touches a `0x37` record goes
+through the generic container accessor VA `0x004FCBE9` (98) / `0x004010B7`
+(97) / `0x00401148` (95), which computes element addresses but never branches
+on the stamp bytes). A reader MUST preserve the six bytes verbatim. [OBSERVED
+for the domain and the negative]
+
+`0x0038` would carry 10-byte elements but no shipped document populates one
+(chapter 11 §11.10.1). [OBSERVED]
 
 ## 7. Open
 
 | Item | Status | Experiment |
 |---|---|---|
-| Tag `0b010` (`FUN_004c9a60`) — field `+0x06` of the referenced object | `[UNKNOWN]` beyond the call shape | needs a document that uses a named scheme slot |
-| Flag byte of the `0x0037` element | `[UNKNOWN]` | author a custom colour and diff |
-| `0x4737B` / `0x4737C` (tag 5 "automatic") | `[UNKNOWN]` — a sentinel the renderer maps to the system window colour | trace the paint path |
-| Entries above the index domain (`0x23`+ in 95/97, `0x38`+ in 98) | recursive references, semantics of the tint entries `[UNKNOWN]` | needs a document that references them |
+| Tag `0b010` (`FUN_004c9a60`) — field `+0x06` of the referenced object | closed: the tag-2 reference names a slot of the document's colour-scheme array, and the decoder returns the `u32` at object offset `+0x06` of that slot's entry — an index→colour map, not arithmetic. P95 VA `0x00508BFB` / P97 VA `0x005284A3` / P98 VA `0x004C9A60` share the body `FUN_004fcbe9(schemeBase, ref) + 6` (scheme word at `DAT_+0x60`); the two surviving callers pass only object ids the decoder resolved from the tag's low word. Tag-2 references occur in the corpus shape palette at `+0x23`/`+0x18`-family offsets with low words resolving inside the document's own tables (chapter 11), never as dangling ids; the branch is exercised by every tinted shape, not by a missing document. [OBSERVED, binary + corpus] | — |
+| Stamp bytes of the `0x0037` element | closed as carried-along writer state: `s0` is a per-element stamp (`0, 1, 2, 8, 9, 0x18`, `0` in 40/63), `s1 == 0` in 63/63; no shipped code reads either byte. See §6 | — |
+| `0x4737B` / `0x4737C` (tag 5 "automatic") | closed: the sentinel the decoder returns when `(ref & 0xFFFF) == 0` (P98 VA `0x004C951B` case 5; P97 VA `0x0044F6F7` case 5, which yields `0x4737B` and remaps to `0x5737B` under the same paint-mode bit at P97 VA `0x004284A3`), remapped to `0x4737C` when the global paint-mode bit is set (`DAT_006120D4+0x6F & 0x2000`, P98) so the paint path can select the alternate system brush. P95 has no tag-5 case (VA `0x00418364` falls through to `-1`/unchanged) and no `0x4737B` anywhere; only 3 corpus shapes carry tag 5, all nonzero low words (`0xAD01008A` ×2, `0xAD810002` ×1 in `p97deluxe/x/PageWiz/overhill.pub`, `namecrd.pub`), i.e. the passthrough branch, so no shipped document exercises the sentinel. A reader MUST emit `0x4737B` for tag-5/index-0 and pass any other tag-5 value through. [OBSERVED, binary + corpus] | — |
+| Entries above the index domain (`0x23`+ in 95/97, `0x38`+ in 98) | closed: the table past the RGB domain is a second reference array, not RGB. P95/P97 are byte-identical through `0x22` and diverge from P98 at `0x23` (P98 file offset `0x1FE260`, P95 `0x18DD78`, P97 `0x1C7888`); past the boundary the entries are themselves colour references — tag 6 brightness forms (`0xC8000000` = black, tag 6 / index 0 / 0 %), tag 4 derived slots (`0x8C003C00`), tag 2 scheme refs (`0x50…`), and tag 3/1 passthroughs — which the decoder recurses through (P98 VA `0x004C951B` cases 2/4/6 call back into the decoder; validator `colour_ref_ok` accepts tags 0/1/2/4). The writer side confirms the boundary: the only tag-0 indices the pinned colour fields (`0x47` slots, RECT `+0x20`/`+0x24`, shape `+0x23`) ever carry above `0x22` in P98 are `0x25`, `0x30`, `0x35`, `0x37` — the new P98 RGB ramp — while P95's pinned fields never exceed `0x22` (its `0x23`+ entries are recursive references, so a 95/97 reader MUST recurse). This is the chapter 09 derived table, published in full above (§2). [OBSERVED, binary + corpus] | — |

@@ -76,18 +76,29 @@ versioned in its low word. A reader that dispatches on the CLSID must accept bot
 
 ## 16.3 `\x03Internal`
 
-12 or 16 bytes, Publisher-private, read as `u16, u16, u32, u32`:
+The stream is Publisher-private bookkeeping carried by the CFB layer, not by the
+`Contents` chunk directory: 12 bytes in 130/130 outer documents (`00 00 01 00`
++ a third u32 taking 0…241 + a zero tail); every `Objects/Object N/`
+substorage carries its own (12 bytes in 41, 16 in 243 nested streams). The low
+words are invariant (`0x0000`, `0x0001`); the third u32 has
+no observed correlate — it equals neither the chunk count (0/128), the
+`Objects` sub-storage count (17/130), nor any directory field — and bytes
+`+0x08…+0x0B` are zero in 130/130, so no second field can be read out of the
+tail either.
 
-| Variant | Bytes | Files |
-|---|---|---|
-| 12-byte | `00 00 01 00 00 00 00 00 00 00 00 00` | 50 |
-| 12-byte | `00 00 01 00 00 00 05 00 00 00 00 00` | 10 (word 2 = 5) |
-| 12-byte | word 2 = 3 / 4 / 2 | 10 / 9 / 7 |
-| 16-byte | `00 00 01 00 00 00 01 00 00 00 00 00 00 00 00 00` | 116 |
-
-[OBSERVED] Fields 0 (`0x0000`) and 1 (`0x0001`) are invariant; the third u32 takes 0…5.
-Semantics [UNKNOWN] — the discriminating experiment is to edit and re-save a document and see
-which word moves.
+Closed as opaque/proven-carried: the CFB layer's name is all the format needs
+(`\x03` = the `STREAMCFB_NOTIFY` VCS hint, so the OLE layer treats the stream
+as internal bookkeeping), and the stream is never named by any code path in the
+shipped binaries: the wide string `L"Internal"` occurs once per executable
+(P95 file offset `0x22653E`, P97 `0x2352FA`, P98 `0x222FFE`) inside the
+version-resource block (`ProductVersion`, `InternalName "MSPUB"`), never as a
+storage/stream argument. Scan scope: zero hits for an Internal stream open in
+`C:\pwrk\decomp95` (3 826 functions; the only `Internal` hit is
+`TEXTMETRIC.tmInternalLeading` at P95 VA `0x004B36F9`), `notes/p98/decomp97`
+and `notes/p98/decomp98` likewise. A reader MUST preserve the stream verbatim;
+the word's exact semantics are unrecoverable from the shipped code — that is
+the finding, not an open question. [OBSERVED for the byte census and the
+negative]
 
 ## 16.4 `\x05SummaryInformation`
 
