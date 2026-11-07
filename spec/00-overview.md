@@ -69,5 +69,5 @@ Every non-trivial claim in this specification carries one of:
 * `[INFERENCE]` — follows from observations plus domain knowledge but was not
   directly confirmed.
 * **UNKNOWN** — not yet established; the open question is stated. (Tags are written as
-  `[OBSERVED]`, `[INFERENCE]`, `[UNKNOWN]` on individual claims; this line names them without
+  the three tags above on individual claims; this line names them without
   brackets so a marker-count check counts only real unresolved claims.)

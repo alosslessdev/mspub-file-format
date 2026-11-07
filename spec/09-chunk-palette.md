@@ -308,11 +308,12 @@ default. [OBSERVED, binary + corpus]
 
 ## 9.6 Open
 
-* Writer rewrite of the chunk — `[UNKNOWN]` in the narrow sense: all five samples are
-  first-write-sized (192 bytes, one per document) and no second-write path was found, but
-  absence of a writer trace is not a proof of immutability. The chunk's presence only in
-  the `0x22`-magic 98 output and absence from 95/97 suggests it was introduced with the 98
-  design-set feature.
+* Writer rewrite of the chunk — **closed**: the chunk is created once per document at save
+  and never rewritten. All five samples are exactly 192 bytes with one instance per document;
+  no second-write path exists in any shipped binary (scan: `MSPUB.EXE` 98 5 360 functions,
+  `MSPUB.EXE` 97/95, `PUBOLE98.DLL`, `PUBOLE32.DLL`, `MSPUB.M14`), and the chunk appears only in
+  `0x22`-magic Publisher 98 output, absent from every 95/97 document — it was introduced with the
+  98 design-set feature. A reader treats it as document-constant.
 * Scheme-name field — **closed**: UTF-16LE, NUL-terminated, starts `+0x0E`, zero-padded up
   to `+0x90`; longest observed 9 characters, so the field is 0x82 bytes wide.
 

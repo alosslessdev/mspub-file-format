@@ -181,7 +181,9 @@ Both are enforced by `tools/validate.py` (`image_data_length_prefix`, `image_dat
   WMF on import, which is consistent with "always WMF". `[INFERENCE]`
 * `0x0039` is a 48-byte (56 in 98) document-level record with no image children — the
   earlier suggestion that it is image-bearing was based on a misread marker (`39` decimal
-  = `0x27`); its role is documented in chapter 11 and its *purpose* is `[UNKNOWN]`.
+  = `0x27`). Its framing is documented in chapter 11 §11.1 and it is **proven opaque**: the
+  48-byte record is carried through the chunk copy untouched and no shipped binary reads it
+  (scan: `MSPUB.EXE` 95/97/98, `QS98.DLL`, `PUBOLE32.DLL`), so a reader preserves it verbatim.
 * `0x0027` triple closed in §8.4.1: cached WMF outer-window edges (top, right,
   bottom) in twips, 22/22; `+0x12` is the bottom edge, not a flag.
 
