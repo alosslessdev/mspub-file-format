@@ -69,7 +69,9 @@ Publisher 97 CD 250, Publisher 97 disk set 108, Publisher 98 CD 5 — the three
 ## Remaining unknowns
 
 Every chapter ends with an **Open** table, and every claim carries `[OBSERVED]`,
-`[INFERENCE]` or `[UNKNOWN]`. As of the last pass there are **no `[UNKNOWN]` rows** left.
+`[INFERENCE]` or `[UNKNOWN]`. The count of unresolved field-level markers is tracked by
+`grep -o '\[UNKNOWN\]' spec/**/*.md | wc -l`; it is being driven to zero by tracing each
+field's accessor in the shipped binaries (see the method below).
 
 The closure rule is: a field is resolved either by a corpus identity (N/N instances) or by
 the code that reads or writes it, cited as a virtual address with the operation described.
