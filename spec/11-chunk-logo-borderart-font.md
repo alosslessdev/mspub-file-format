@@ -16,7 +16,7 @@ the record is absent. Every non-zero value resolves to a chunk of the stated typ
 | Offset | Marker | Record | Present |
 |---|---|---|---|
 | `+0x04` | `0x0029` | print setup (DEVMODE/DEVNAMES) | 130/130 |
-| `+0x06` | `0x0028` | paper/print parameter block | 130/130 |
+| `+0x06` | `0x0028` | six-key font/format dictionary (§11.8.1) | 130/130 |
 | `+0x08` | `0x0014` | first page | 130/130 |
 | `+0x46` | `0x0023` | fixed 4-slot table | 130/130 |
 | `+0x48` | `0x0031` | design/object set #1 | 130/130 |
@@ -82,6 +82,53 @@ Fixed 16 bytes (130/130). Slot order is `1A, 1C, 2E, 2D` — not ascending marke
 `+0x04` resolves to a live chunk in only 8 documents, so it must not be resolved as an
 id. [OBSERVED for the layout; INFERENCE for the style-id reading]
 
+### 11.2.1 `0x001A` — the story's run list
+
+`0x001A` is the story container's first child (`+0x08`). Its size rule is
+`26 + 14·n`, but the 14 is **not** an element stride: the record is a 26-byte header, then
+`u32[n]`, then `n` **10-byte** slots. The element size word at `+0x08` says `10` in every
+instance (482/482), which is the authoritative figure:
+
+```
++0x00 u16  0x001A
++0x02 u8   0x04          A
++0x03 u8   0x04          B
++0x04 u16  n             duplicate at +0x06 (482/482)
++0x08 u16  10            element size (482/482)
++0x0A u16  field         NOT n+1: independent, 0…35, differs from n+1 in 109/482
++0x0C i16  field         small signed, -3…4 is the bulk
++0x0E u16  field         0 (276) or 0xFFFF (206) — a "none" marker
++0x10 u16  flags         small values, mostly odd (1 ×112, 3 ×63, 5 ×52, 7 ×25, 9 ×23; 0 ×26)
++0x12 u16  8             (482/482)
++0x14 u32  0             (482/482)
++0x1A u32[n] offsets     non-decreasing, 465/465 of the non-empty records
++0x1A+4·n   n × 10-byte slots
+```
+
+The slot is `{u16 chunkId, u16 flag, u32 offset, u16 index}`; the `chunkId` is the
+**first** field, and that is what fixes the field order, because it resolves:
+
+* 4 854 live slots (non-zero id) over 9 604 slots: **4 854/4 854 resolve to a chunk of the
+  same document, no miss**; 4 601 name a `0x0000` record and 253 a `0x0001`, i.e. the text
+  runs / shapes that belong to the story.
+* the 4 750 empty slots are all zero with `index == 0xFFFF` (the "none" marker), so `n` is a
+  slot high-water mark and a reader must skip them, exactly as for the free lists of §11.3.1
+  (the difference is that `0x001A` marks a dead slot with an all-zero body plus `0xFFFF`, not
+  by a link value, because it is the fixed-element flavour and has no offset table).
+* the `u32` field steps by 4 between consecutive live slots (0, 24, 28, 32, 36, 40, 44 in
+  `BMEMO1.PUB`), so it is a byte offset into a 4-byte-granular table, and `index` is an
+  independent small ordinal. Which table `offset` addresses, and what `flag` (1 in 4 556 of
+  4 854 live slots) means, remain `[INFERENCE]` — the record is only ever consumed as a
+  list of run ids.
+
+Worked example — `p95/x/PAGEWIZ/BMEMO1.PUB` id `0x018E`, 222 bytes, `n = 14`:
+`u32[14] = (20, 20, 36, 36, 130, 130, 222, 222, 302, 302, 347, 347, 368, 368)` (seven
+distinct ascending values, each doubled — the pairwise duplication holds in 408 of the 465
+non-empty records), then slots `(0x01CC,1,0,10)`, `(0,..,0xFFFF)`, `(0x01E1,1,24,11)`,
+`(0,..,0xFFFF)`, `(0x019A,1,28,7)`, `(0x01D0,1,32,8)`, `(0x01D1,1,36,9)`, `(0x01E2,1,40,12)`,
+`(0x01CD,1,44,13)` — the seven ids are all 102-byte `0x0000` chunks whose parent is
+`0x0103`. [OBSERVED]
+
 ## 11.3 Container header
 
 `0x001E`, `0x001F`, `0x0023`, `0x0026`, `0x002A`, `0x002B`, `0x0032`, `0x0034`, `0x0037`,
@@ -105,8 +152,8 @@ Two flavours:
 * **Offset table** — element `k` runs from `chunk+0x0E+off[k]` to the next offset (or to
   `size`). Used by `0x001E`, `0x001F`, `0x0023`, `0x0026`, `0x002A`, `0x002B`, `0x0032`.
 * **Fixed element** — payload is `n × elementSize` bytes at `+0x0E`, so
-  `size == 0x0E + elementSize·n`. Used by `0x0037` (6), `0x0038` (10), `0x001A` (14),
-  `0x001C`/`0x002D`/`0x002E` (8).
+  `size == 0x0E + elementSize·n`. Used by `0x0037` (6), `0x0038` (10), `0x001A` (10, with a
+  `u32[n]` prefix — §11.2.1), `0x001C`/`0x002D`/`0x002E` (8).
 
 **Publisher 97 widens the offset entries from `u16` to `u32`**, but the descriptor bytes
 `(A, B)` do **not** change: `0x001E` keeps `(0x08, 0x04)` and
@@ -158,7 +205,7 @@ the list at all — their word at `+0x0C` is always `0` while no slot is free (4
 | Marker | Rule | Result |
 |---|---|---|
 | `0x0016` | `size == 16` | 130/130 |
-| `0x001A` | `size == 26 + 14·n` | 130/130 |
+| `0x001A` | `size == 26 + 14·n` (= header 26 + `u32[n]` + `n`×10, §11.2.1) | 482/482 |
 | `0x001C` | `size == 26 + 8·n` | 130/130 |
 | `0x002D` | `size == 26 + 8·n` | 130/130 |
 | `0x002E` | `size == 26` | 130/130 |
@@ -169,7 +216,7 @@ the list at all — their word at `+0x0C` is always `0` while no slot is free (4
 | `0x002A` | same | 130/130 |
 | `0x002B` | same | 30/30 |
 | `0x0032` | same | 390/390 |
-| `0x0028` | `size == 26 + 5·u16@+0x10` | 130/130 |
+| `0x0028` | `size == 26 + 5·u16@+0x10` (95/97; Publisher 98 re-frames it, §11.8.1) | 130/130 |
 | `0x0029` | `u16@+0x30 == size − 54` | 130/130 |
 | `0x0031` | `size == 30 + 8·u16@+0x08` | 390/390 |
 | `0x0034` | `size == 46 + 14·u16@+0x24` | 70/70 |
@@ -298,8 +345,8 @@ and the style index — and receives the entry pointer (`MSPUB.EXE` 98, caller
 ### The `0x001F` entry
 
 ```
-+0x00  u16      entryKind         {1 ×137, 2 ×9, 3 ×3, 4 ×2, 6 ×1} over the 152 entries
-                                  located by the free-list rule; meaning [UNKNOWN]
++0x00  u16      refCount          live-shape reference count for this style (§11.6.1);
+                                  observed {1 ×137, 2 ×9, 3 ×3, 4 ×2, 6 ×1}
 +0x02  char[42] nameSlot          NUL-terminated ASCII name; bytes after the NUL are
                                   stale text from a previous longer name
 +0x2C  u16      bandTwips         border band width, twips (80, 120, 200, 240, 480, 720 …)
@@ -310,8 +357,9 @@ and the style index — and receives the entry pointer (`MSPUB.EXE` 98, caller
 ```
 
 The earlier reading of `+0x00` — "`1`, or `4` when the entry carries an id list" — is
-refuted: no entry carries an id list (the id-looking run in `BRCATALG.PUB` is the free
-chain, §11.3.1) and the word takes five values. All 152 entries located this way have a
+refuted twice over: no entry carries an id list (the id-looking run in `BRCATALG.PUB` is
+the free chain, §11.3.1) and the word is not a discriminator at all — it is the entry's
+**reference count**, see §11.6.1. All 152 entries located this way have a
 printable NUL-terminated name at `+0x02` (0 exceptions), which is what validates the
 parse. The entry prefix is **always two bytes**; it is the offset *slots* that are 2 or 4
 bytes wide. Census under the free-list rule (unique entry offsets per chunk): **152
@@ -326,8 +374,25 @@ first entry). The eight slots are the border sides
 each tile's extent from its own WMF header, never from the gap to the next offset.
 [OBSERVED]
 
+### 11.6.1 Entry `+0x00` — a live-shape reference count
+
+`+0x00` is the number of shapes that currently use the style. `MSPUB.EXE` 98 VA
+`0x00404e77` maintains it through the same entry accessor the renderer uses: it resolves
+the shape's *old* border-style index `*(short *)(shape + 0x31)`, and when that index is
+not the "no border" sentinel `-2` it does `*entry += -1` — then, after storing the *new*
+index into `shape + 0x31`, `*entry += 1` on the new entry (again skipping `-2`). The
+earlier "no switch reads it" observation is correct and is *why* it is a count: the accessor
+returns the entry pointer and the caller adjusts a counter; nothing ever branches on the
+value.
+
+Corpus agreement: every one of the 152 entries carries a value `>= 1` (the census above
+has no `0` and no negative word), which is what a writer that decrements on un-apply and
+re-increments on apply leaves behind for styles still in use. The value therefore carries
+no information a reader needs — it is a runtime refcount persisted by the writer, like the
+counters of §11.11.1's `0x0052` records, and a reader must not use it to locate entries.
+
 Worked example — `p95/x/PAGEWIZ/AWARD.PUB` `0x001F` id `0x0101`, size 3 090, W16 with
-`n = 4`: slots `(2, 0, 0xFFFF, 0x0A, 0xC04)`, entry 0 at `+0x18` (`entryKind` 1, name
+`n = 4`: slots `(2, 0, 0xFFFF, 0x0A, 0xC04)`, entry 0 at `+0x18` (`refCount` 1, name
 `Waveline`), record at `+0x44` = `400, 400, 400` twips, tile offsets
 `(66, 476, 816, 1 226, 1 566, 1 976, 2 316, 2 726)`, first tile at `+0x5A`. The same
 document in `p97deluxe/x/PageWiz/` is the W32 form: size 3 108, `n = 4`, slots
@@ -364,8 +429,19 @@ a resource the document points at. [OBSERVED]
 
 `0x0031` is a direct child of the DOCUMENT and is referenced from `+0x48`, `+0x56` and
 `+0x58` (three per document in 487/487). A further 342 documents carry a **fourth**
-`0x0031` that has no `0x0032` child and is not referenced from those slots; 1 461 of the
-1 803 instances are the parent of exactly one `0x0032`. [OBSERVED]
+`0x0031` that is not named by those three slots; 1 461 of the 1 803 instances are the
+parent of exactly one `0x0032`. [OBSERVED]
+
+**The fourth instance is the property set: it is referenced from `DOCUMENT+0x6A` and it is
+the parent of the `0x003A` arena.** Measured over all 484 documents: the word at `+0x6A`
+resolves to a `0x0031` in 342/342 documents that carry four design sets — 95 in `p97` and
+247 in `p97deluxe`, which is exactly the split of §11.1.1 — and in the 140 documents where
+the word is not a chunk reference at all (128 of them `p95`, where it holds the page index)
+it never names a `0x0031`. In all 342, that chunk's only child is a `0x003A`
+(`0x3A` ×1, no `0x0032`), i.e. the fourth design set is the one whose arena carries the
+per-object property records of §11.12. The earlier note "no `0x0032` child, not referenced
+from `+0x48/+0x56/+0x58`" was correct about the child and wrong about the reference: the
+reference is the fourth slot, not one of the three. [OBSERVED]
 
 ### `0x0031` payload
 
@@ -390,9 +466,24 @@ a resource the document points at. [OBSERVED]
 Array A is a list of the design's object chunk ids; its last element is `0x7FFFFFFF` in all
 52 non-empty instances, and the ids it names are `0x000F` GROUP (1 187), `0x0005` RECT
 (153), `0x0001` (144), `0x0003` (97), `0x0002` (65), `0x0006` (60), `0x0007` (24),
-`0x0000` (16), `0x0004` (3). Array B is a list of `{u16 id, u16 value}` pairs over a
-different id set (all types occur); the value domain observed is 0…45 and its meaning is
-`[UNKNOWN]`. [OBSERVED for the framing and the id sets; UNKNOWN for B's semantics]
+`0x0000` (16), `0x0004` (3). Array B is `count` `{u16 id, u16 value}` pairs over a
+**design-local id space**: the ids must not be relied on as chunk ids. In 21 of the 52
+populated instances none of them resolves at all, and in `CLASSIC.PUB`'s 52-pair instance
+18 of the 52 do not. Where they do resolve they are a mix — some are ids array A also
+lists, others are object chunks outside A (31/52 populated instances have at least one
+resolving id that A does not list) — so the two arrays address the same object set under
+different conventions and only array A is a clean chunk-id list. [OBSERVED]
+
+**The `value` is an index into the design's own `0x0032` name table.** Over the 40
+populated instances that have a `0x0032` child, every value is `<` that child's `count`
+(40/40, no exception), the values are pairwise distinct (40/40), and when the design's
+`count` equals the name count the multiset is exactly `0 … count−1` (`CLASSIC.PUB`
+id `0x0105`: 52 pairs, 52 names, a permutation of 0…51; `79` pairs against `80` names
+leaves exactly one name unreferenced). The pair list is therefore the object → name map of
+the design: the `id` names the object, the `value` selects its entry in the `0x0032`
+name table of §11.7. The earlier "value domain 0…45, meaning unknown" reading was a
+domain scan without the partner table; the upper bound is the name count, not 45.
+[OBSERVED]
 
 Worked example — `p95/x/PAGEWIZ/CLASSIC.PUB` id `0x0105`, 446 bytes, count 52:
 
@@ -410,11 +501,27 @@ Same container family as §11.3, with the same two width forms:
 | L1 (u16) | `u16` at `+0x04`, dup `+0x06` | `u16` at `+0x08` == `size − 0x0E` | `u16[count+1]` at `+0x0E`, first = `2·(count+1)` | ASCII names |
 | L2 (u32) | `u32` at `+0x04`, dup `+0x08` | `u32` at `+0x0C` == `size − 0x16` | `u32[count+1]` at `+0x16`, first = `4·(count+1)` | ASCII names |
 
-Measured: 387 L1 (all in `p95` plus 3 `p97`), 1 070 L2 (all `p97`/`p97deluxe`/`p98`), and
-4 L2 instances in `p97/x/PAGEWIZ/JAZZY.PUB` and `PLAIN.PUB` whose offset array is
-non-monotone (`offs[0] = 5`) — an unexplained writer variant, `[UNKNOWN]`. 1 455 names
-total. The names are the design's object names (`Titles`, `Corner`, `Pinstripes`,
-`Table of Contents`, …), and `count` matches the `0x0031` count that owns them.
+Measured: 387 L1 (all in `p95` plus 3 `p97`), 1 070 L2 (all `p97`/`p97deluxe`/`p98`). The
+4 L2 instances in `p97/x/JAZZY.PUB` and `PLAIN.PUB` whose offset array is not monotone are
+**not a writer variant**: they are ordinary offset tables whose free-slot list (§11.3.1) is
+non-empty, and `offs[0] = 5` is the *first slot being free*. Measured on those 4:
+
+| File | Chunk | `n` | head `+0x12` | chain |
+|---|---|---|---|---|
+| `JAZZY.PUB` | `0x0106` (id 262) | 80 | 78 | `78 → END` (`slot 78 = 0xFFFFFFFF`) |
+| `JAZZY.PUB` | `0x0104` (id 260) | 24 | 0 | `0 → 5 → 7 → END` (`offs[0] = 5`) |
+| `PLAIN.PUB` | `0x0106` (id 262) | 88 | 82 | `82 → END` |
+| `PLAIN.PUB` | `0x0104` (id 260) | 35 | 27 | `27 → 28 → 26 → 0 → 25 → END` |
+
+So the table is **allowed** to start with a free link and the parse is not off by one
+field: `offs[0]` is an offset only in a chunk whose head chain does not visit slot 0. A
+reader must drop the free slots and take the entries from the remaining slot values, exactly
+as for `0x001F` and `0x003A`. `tools/validate.py` now enforces the chain for every `0x0032`
+instance (`freelist_0x32_chain`: 1 479/1 479 chunks over the four CDs satisfy it, 23 of them
+with a non-empty free list). [OBSERVED]
+
+1 455 names total. The names are the design's object names (`Titles`, `Corner`,
+`Pinstripes`, `Table of Contents`, …), and `count` matches the `0x0031` count that owns them.
 
 Worked example — `p95/x/PAGEWIZ/CLASSIC.PUB` id `0x0106`, 589 bytes, count 52, L1:
 `+0x08 = 0x023F = 575 = 589 − 14`, offsets `0x6A, 0x70, 0x77, … 0x023F`, first string at
@@ -423,18 +530,104 @@ Worked example — `p95/x/PAGEWIZ/CLASSIC.PUB` id `0x0106`, 589 bytes, count 52,
 The three slots correspond to the three design sets every Publisher template is built on;
 the naming is `[INFERENCE]`, the structure is `[OBSERVED]`.
 
-## 11.8 Print setup records `0x0028`, `0x0029`, `0x0036`
+## 11.8 Records `0x0028`, `0x0029`, `0x0036`
 
-* `0x0028` — paper/print parameter block. Six fixed application codes
-  (`0x14B7, 0x18B7, 0x14A8, 0x14DE, 0x14E0, 0x142A`, i.e. 5303/6327/5288/5342/5344/5162)
-  in every document, then `n = (size−26)/5` five-byte records `{u16 code, u16 value, u8 0}`.
-  The codes exceed the chunk-id space, so they are application constants, not references.
+* `0x0028` — the six fixed application codes are a **key→font table**, not print parameters
+  (§11.8.1). In short: the six keys live as a 30-byte constant table in the executable, each
+  key's dictionary index is the `u16` array at `+0x04`, and each key's `value` is the index
+  of the `Symbol` entry in the document's `0x001E` font table.
 * `0x0029` — print setup. Four EMU margins at `+0x16`, page width/height at `+0x48`/`+0x4C`
   (equal to the DOCUMENT's, 130/130), DEVMODE `dmPaperSize` at `+0x50`, then device, driver
   and port as NUL-terminated strings whose cumulative ends are the four `u16` at
   `+0x3E…+0x44`. Contains **no timestamps**.
-* `0x0036` — a fixed 112-byte print-setup companion, one instance in the entire corpus
-  (`CHEKLIST.JSP`), byte-identical across all four CD revisions. Fields `[UNKNOWN]`.
+* `0x0036` — a fixed 112-byte record whose **parent is the `0x0029` print-setup record**
+  (not the DOCUMENT), one instance in the entire corpus (`CHEKLIST.JSP`), byte-identical
+  across all four CD revisions. Its `(A,B)` stamp is `0x7070`, i.e. `A = B = 112 = size` —
+  the same self-describing stamp `0x003F` uses. Only five fields are non-zero: `+0x10` `1`,
+  `+0x12` `4`, `+0x1E` `1`, `+0x6A` `2`, `+0x6E` `0x46`; everything else is zero, so there is
+  almost no payload to identify. No module reads it: the stamp `0x7070` never appears as an
+  immediate in `MSPUB.EXE` 98 (5 360 functions), 97 (4 252) or 95 (3 293), and the record is
+  reached only through its parent's child list (§11.8.2).
+
+### 11.8.1 `0x0028` — six fixed keys, a key→font table
+
+```
++0x00 u16 0x0028
++0x02 u16 0x1010          A = B = 0x10, the count offset
++0x04 u16[6]              per-key dictionary index (§11.3.1's free list is unused here)
++0x10 u16 n               n >= 6; duplicate at +0x12
++0x14 u16 5               element size
++0x16 u16 1
++0x18 u16 0xFFFF
++0x1A n × 5              {u16 key, u8 0, u16 value}
+```
+
+`n == (size − 26) / 5` holds for every 95/97 instance (479/479); 422 of those are the
+minimum `n = 6` (56 bytes). The five Publisher 98 records are re-framed (§11.8.1, last
+paragraph). The record order is **not** ascending by key: `MSPUB.PUB` stores the six in the
+order `0x14B7, 0x18B7, 0x14A8, 0x14DE, 0x14E0, 0x142A`, `BMEMO1.PUB` the exact reverse.
+
+**The 5-byte record is `{u16 key, u8 0, u16 value}` — the value sits at `+0x03`, not
+`+0x02`.** The disassembly of the builder settles it: it copies four bytes of the table
+entry, then stores the computed `u16` at struct offset 3 (`MSPUB.EXE` 95 VA `0x0044de79`,
+`mov [esp+0x1b], bp` with the struct at `+0x18`). Read as `u16` at `+0x02` the field is
+`0x0100`/`0x0200` and looks like a flag; read at `+0x03` it is `1`/`2`, which is what the
+code produces and what the `Symbol`-index correlation below needs.
+
+**The six keys are compile-time constants.** `MSPUB.EXE` 95 keeps them as a 30-byte table
+in `.rdata` at VA `0x593FA0` (`b7 14 00 01 00 | b7 18 00 01 00 | a8 14 00 01 00 |
+de 14 00 01 00 | e0 14 00 01 00 | 2a 14 00 01 00`) — the whole default payload, with the
+value byte equal to `1`. The walker is VA `0x0044de44`: it loads `0x593FA0` into a register,
+copies the four-byte head plus the fifth byte into a stack record, calls the key lookup
+`0x0044df14`, stores the returned byte into a six-`u16` array of its argument, and advances
+the pointer by 5 while it is `< 0x593FBE` — i.e. exactly six iterations. Nothing compares
+the keys to anything, so this is a **table walk, not a switch**: the six are table rows,
+which is why they can never be chunk ids (all six exceed `0x087D`, the largest chunk id in
+the corpus).
+
+**The `u16[6]` at `+0x04` is the per-key dictionary index.** The lookup `0x0044df14`
+delegates to `0x0044debc`, which walks a per-document list of 5-byte keys (entry `k` from
+`0x00401717`), compares the 5 bytes byte-for-byte, and returns `k`; on a miss it appends
+the key (`0x00405f4c`) and returns the new `k`. `0x0044df14` then adds 10 to that index and
+returns it, and the builder stores it as a `u16` at `entry + 4 + 2k` (`0x0044de9f`). Corpus:
+the array's values are `10 … 0x31`, and the six keys of `MSPUB.PUB` get `0x0A … 0x0F` —
+indices 0…5.
+
+**The `value` is the document's `Symbol` font index.** The second operand of the same
+builder is `0x00440822`, which calls `0x0044086b(fontTableId, "Symbol", 0x50, 2, 2)`; that
+routine searches the document's `0x001E` table for an entry with a matching size stamp and
+the name `Symbol`, appends one when absent, and returns its index (0 when
+`CreateFontA` fails). `0x00440822`'s return is what lands in the record's `+0x03`.
+Corpus: all six records of one document carry the same value (each of the six keys shows the
+same 293/158 split between `2` and `1`), the domain over the corpus is `0 … 9` with `2`
+×279 and `1` ×158, and of the 130 documents whose font table actually carries a `Symbol`
+face the value equals that face's index in 123 (the 7 exceptions and the 354 documents with
+no `Symbol` entry carry a persisted session index — the face is compacted away on save, the
+same staleness the `0x0052` pointers show). A reader must therefore treat this as a
+write-side index, not a reference. [OBSERVED]
+
+**Publisher 98 spells the answer out.** The same six keys are written as 20-byte records
+`{u32 key-low-byte, u16 0x4120, UTF-16LE face name}`: `p98/x/MSPUB.PUB`'s 194-byte
+`0x0028` holds `0xB7, 0xB7, 0xA8, 0xDE, 0xE0, 0x2A` followed by `Symbol\0` six times
+(offsets `0x4A, 0x5E, 0x72, 0x86, 0x9A, 0xAE`), plus the six `u32` indices `0…5` at
+`+0x04` — the 95/97 `+10` bias is gone. So each of the six keys selects **a font slot**, and
+in every shipped publication all six resolve to `Symbol`. [OBSERVED]
+
+**The consumer reads the keys, not the records.** `MSPUB.EXE` 95 VA `0x004cf710` (case 10 of
+a character-format loader) takes a 5-byte key out of a text-run record and calls
+`0x0044df14(DOCUMENT->+0x06, &key)`, storing the returned byte at `+0x1E` of the run
+format. That is the same lookup the builder uses, against the same chunk, so the chunk is a
+per-document **key dictionary** and the six fixed rows are its permanent members.
+
+### 11.8.2 `0x0036` — a child of the print-setup record
+
+`0x0036`'s only instance has `parent = 0x010c`, which is the document's `0x0029` print-setup
+record (`p95/x/CHEKLIST.JSP`), so the earlier "document-level companion" framing is wrong:
+it is a sub-record of `0x0029`. The payload is `36 00 | 70 70 |` then zeros with five
+exceptions, listed above. Since it is the only instance in 484 documents, has no
+`0x0000`-class payload to correlate, and no code in any decompiled module mentions its
+stamp, its fields remain `[UNKNOWN]` with the blocking fact stated: **a second instance
+does not exist and the single one is 108 of 112 bytes zero.**
 
 ## 11.9 The `A` byte
 
@@ -449,15 +642,36 @@ offset), `0x0035` (A = 0xC8, the chunk size), `0x0039` (A = 0x4C). [OBSERVED]
 
 `0x0037` (16 documents) uses 6-byte elements: `RR GG BB 20 flag`. The triple is unambiguous;
 the `0x20` tag byte is the literal-RGB tag of chapter 09, and the trailing flag takes
-{0,1,2,8,9,0x18}. `[INFERENCE]`: a document-level custom-colour list. `0x0038` (15
-documents) declares 10-byte elements, but the corpus contains **no populated instance**, so
-its element layout is `[UNKNOWN]`.
+{0,1,2,8,9,0x18}. `[INFERENCE]`: a document-level custom-colour list. `0x0038` is the same
+container with the element size word set to 10, and it is **declared but never populated by
+any shipped build**: all 145 instances over 601 documents are the 14-byte empty form
+(§11.10.1).
 
 Population measured over all 487 documents: `0x0037` — 183 instances, count 0 in 129, 1 in
 48, 2 in 5, 5 in 1, always `size == 14 + 6·count`; `0x0038` — 127 instances, **all 14 bytes
-with count 0**. So the 10-byte element form exists in the writer but is never exercised by
-any shipped publication: closing it needs an authored document with a custom colour, not
-more corpus. [OBSERVED]
+with count 0**. [OBSERVED]
+
+### 11.10.1 `0x0038` — declared, never populated
+
+Widening the population to every document on the four CDs (601 files, 484 of them unique
+documents) gives 145 `0x0038` instances and **no populated one**: every instance is exactly
+14 bytes, `count == 0` at `+0x04`/`+0x06`, and `u16@+0x08 == 10`, i.e. the header of the
+fixed-element flavour (§11.3) with an element size and an empty array. The pair therefore
+shares one writer: it emits the 14-byte header for both markers and only the size word
+differs — `0x0037` is exercised (54 populated instances) and `0x0038` is not.
+
+There is no fill loop to find. The blocking fact is not "the corpus is too small" but that
+the element size is a **declared constant with no producer**: no function in the complete
+decompiled trees of `MSPUB.EXE` 98 (5 360 functions), 97 (4 252), 95 (3 293) or `QS98.DLL`
+(2 104) stores to the `count` word of a `0x0038` record, and the marker appears in none of
+them in a chunk-type dispatch (the `case 0x38` sites in the 98 build are command IDs
+paired with `0xa7`/`0xa9`, not chunk types). A reader must therefore treat a non-zero count
+as impossible in these generations and must not try to decode a 10-byte element; the record
+is `[UNKNOWN]` by construction, not by missing evidence. [OBSERVED, negative]
+
+`tools/validate.py` enforces the empty form for every `0x0038` (`rec_0x38_empty`): 14 bytes,
+count 0, element size 10 — so a future instance with a payload fails loudly instead of
+being silently misparsed.
 
 ## 11.11 Publisher-98-only document records
 
@@ -644,10 +858,25 @@ size rules; `0x003A` and `0x003F` are now mapped. [OBSERVED]
 
 | Marker | Instances | Size | Parent | Framing |
 |---|---|---|---|---|
-| `0x002F` | 12 | 38, fixed | `0x0016` story container | `+0x04 u16 0x0002`, `+0x06 u16 0x021A`, `+0x08 u16 1`, `+0x0A u16 1`, `+0x0C u16 4`, `+0x1E u16 0x1E95`, `+0x22 u16 0xFFFF`; interior `[UNKNOWN]` |
+| `0x002F` | 12 | 38, fixed | `0x0016` story container | `+0x04 u16 2`, **`+0x06` = the id of its `0x003B` child (12/12)**, `+0x08`/`+0x0A` `1`, `+0x0C` `4`, `+0x0E` `1` or `2`, `+0x10` a small signed value (0, −23, −102, −425), `+0x12 … +0x1C` zero, `+0x1E` not a chunk id (6 770 … 7 829 in the PageWiz files), `+0x20`/`+0x22` `0`/`0xFFFF`; interior `[UNKNOWN]` |
 | `0x003A` | 342 (95 `p97`, 247 `p97deluxe`) | 26 … 1 014 | `0x0031` design set, 342/342 | u32 container: `u32@+0x04 == u32@+0x08` (slot high-water mark), `u32@+0x0C == size − 0x16` (end), `u16 1` at `+0x10`, the free-slot-list head at `+0x12` (`0xFFFFFFFF` = empty, in all 330 empty records; a slot index 6…56 in the 12 populated), `u32[n+1]` slots at `+0x16` with slot *n* == end — **all 342, the 12 populated included**; the slots index a record arena (below) |
 | `0x003B` | 12 | 26, fixed | `0x002F`, 12/12 | one byte body, 12/12: `3b 00 04 04  00000000 00000000 04000000 0100 ffffffff 04000000` |
 | `0x003F` | 35 | 180, fixed | `0x0015` document, 35/35 | label/label-sheet template record — full map below |
+
+**`0x002F`'s consumer.** The record is a story-container child, and its only pointer-shaped
+field (`+0x06`) is the link to its own `0x003B` child, proven on all 12 instances (for
+`CLASSIC.PUB` the `0x002F` at id `0x021E` names `0x021A`, which is its 26-byte `0x003B`;
+`MODERN.PUB` names `0x0588`, `plain_cd.pub` names `0x0238`). Nothing else in the record is a
+reference: `+0x1E` is not a chunk id in 11 of the 12 (it is 2 001, 6 770, 6 847, 7 110,
+7 829 in the PageWiz files) and `+0x10` is a signed value. No consumer was located. Scan
+scope: the
+complete decompiled trees of `MSPUB.EXE` 98 (5 360 functions), 97 (4 252), 95 (3 293) and
+`QS98.DLL` (2 104) contain no chunk-type dispatch case for `0x2F` — the `case 0x2f` blocks
+found (`MSPUB.EXE` 95 VA `0x00572fcb`) belong to a style-property copier whose switch
+variable is a property id in 4…0x194, not a marker — and the pair occurs only in the four
+PageWiz templates of `p97/x` and `p97deluxe/x` (present in neither `p95` nor `p98`). The
+record is therefore **read-only evidence of a writer state**, not a reference a reader must
+follow. [OBSERVED, negative]
 
 The 26-byte empty form shared by `0x003A`/`0x003B` is the same container shape as the
 `0x0032` L2 form (§11.7) — count, duplicate, end offset, `u16 1`, `u32 0xFFFFFFFF`, one
@@ -804,14 +1033,7 @@ the `…716x` label files). [OBSERVED]
 
 | Item | Status | Experiment |
 |---|---|---|
-| `0x0028` six application codes | `[UNKNOWN]` | look the constants up as a table in `MSPUB.EXE` |
-| `0x001A` 14-byte element field order | `[UNKNOWN]` | save a document that adds one paragraph |
-| `0x0016 +0x04` style id | `[INFERENCE]` | resolve against `0x0026`/`0x001F` entry order |
-| `0x0036` fields | `[UNKNOWN]` | single instance; needs a document exercising print setup |
-| `0x0038` element layout | `[UNKNOWN]` and **not reachable from the corpus** — 127/127 instances are the empty 14-byte form | author a document that uses the 10-byte colour form |
-| `0x0031` array B (`{u16 id, u16 value}` pairs) | `[UNKNOWN]` semantics; framing proven (1 803/1 803) | correlate the value with the object's page or z-order |
-| `0x0031` fourth instance (342 documents) | `[UNKNOWN]` role — no `0x0032` child, not referenced from `+0x48/+0x56/+0x58` | diff a document before and after adding a user design |
-| `0x0032` non-monotone offset variant | `[UNKNOWN]` — 4 instances in `p97/x/PAGEWIZ/{JAZZY,PLAIN}.PUB` with `offs[0] = 5` | diff a save that adds one object name |
-| `0x001F` entry `+0x00` kind | `[UNKNOWN]` — takes `{1 ×137, 2 ×9, 3 ×3, 4 ×2, 6 ×1}` over the 152 entries located by the free-list rule; no switch reads it and it correlates with neither the style index, the name nor the tile set | dump the renderer branch that tests it (`0x004818a0` takes the entry pointer but does not read `+0x00`) |
-| `0x004E` 45-byte element interior | partly closed: the four **line widths in points** are at `+0x14`/`+0x1A`/`+0x20`/`+0x26` (VA `0x004547f1` × `0x319C` EMU/pt) and `+0x0A` is a boolean tested by VA `0x004e279f`; the leading `u16` (`0x40/0x50/0x60/0x70`) and the `0xC0E4` colour words have **no reader** — all four widths are 0 in both instances, so no field of this record is exercised | author a checklist whose cell formats differ (the record is a cell/box format: the same 45-byte struct is the table renderer's per-cell format, 5 of them on the stack at VA `0x0050b7d2`) |
+| `0x0016 +0x04` style id | `[INFERENCE]` | decompile the story-container consumer in `MSPUB.EXE` and resolve `+0x04` against `0x0026`/`0x001F` entry order |
+| `0x0036` fields | `[UNKNOWN]`, blocked on the corpus: one instance in 601 documents and 108 of its 112 bytes are zero; no module mentions its `0x7070` stamp (§11.8.2) | locate the `0x0029` reader in `MSPUB.EXE` 95 (`CHEKLIST.JSP` is a 95 file) and check whether it walks the child list; decompile `PUB5STP.DLL`/`MSPUB.M14` if a second instance ever surfaces |
+| `0x004E` 45-byte element interior | partly closed: the four **line widths in points** are at `+0x14`/`+0x1A`/`+0x20`/`+0x26` (VA `0x004547f1` × `0x319C` EMU/pt) and `+0x0A` is a boolean tested by VA `0x004e279f`; the leading `u16` (`0x40/0x50/0x60/0x70`) and the `0xC0E4` colour words have **no reader** — all four widths are 0 in both instances, so no field of this record is exercised | decompile the table renderer around VA `0x0050b7d2` (5-element `0x2D`-stride stack array) and the `0x004e279f` caller to name the leading `u16` and the `0xC0E4` slots |
 | `0x0052` `+0x04` ordinal owner | **closed negative**: `+0x04` is a document-wide ascending sequence number (unique, 1…114 over 110 records), not a key and not a chunk id; `ptrA`/`ptrB` are persisted heap addresses. No code reads the chunk (scan scope and VAs in §11.11.1) | — |

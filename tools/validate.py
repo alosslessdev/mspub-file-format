@@ -73,6 +73,7 @@ CHECKS = [
     "header_document_id", "header_post_header_offset", "header_page_id_resolves",
     "directory_id_hwm_is_max_id", "directory_flags_writer_bits",
     "freelist_0x1f_chain", "freelist_0x3a_chain", "rec_0x3a_arena",
+    "freelist_0x32_chain", "rec_0x38_empty", "rec_0x1a_slots",
 ]
 
 
@@ -347,6 +348,76 @@ def check_file(path: str, stats: collections.Counter, failures: list):
                 or struct.unpack_from("<I", c.data, 0x0C)[0] != 4
                 or struct.unpack_from("<I", c.data, 0x16)[0] != 4):
             fail("rec_0x3b_empty", "id=%#06x size=%d" % (c.id, c.size))
+
+    # ---- spec/11 §11.7: 0x0032 is the design name table; the four instances whose offset
+    # array is not monotone are ordinary free-slot tables (head at +0x12, terminator
+    # 0xFFFFFFFF), so the chain must cover exactly the non-offset slots in every instance.
+    for c in doc.of_type(0x32):
+        d = c.data
+        L = c.size
+        w16 = (L >= 0x0E
+               and struct.unpack_from("<H", d, 6)[0] == struct.unpack_from("<H", d, 4)[0]
+               and struct.unpack_from("<H", d, 8)[0] == L - 0x0E)
+        w32 = (L >= 0x16
+               and struct.unpack_from("<I", d, 8)[0] == struct.unpack_from("<I", d, 4)[0]
+               and struct.unpack_from("<I", d, 0x0C)[0] == L - 0x16)
+        if w16 == w32:
+            fail("freelist_0x32_chain", "id=%#06x size=%d form ambiguous" % (c.id, L))
+            continue
+        if w16:
+            n = struct.unpack_from("<H", d, 4)[0]
+            base, w, term = 0x0E, 2, 0xFFFF
+        else:
+            n = struct.unpack_from("<I", d, 4)[0]
+            base, w, term = 0x16, 4, 0xFFFFFFFF
+        if base + w * (n + 1) > L:
+            fail("freelist_0x32_chain", "id=%#06x n=%d overflows size=%d" % (c.id, n, L))
+            continue
+        slots = list(struct.unpack_from("<%d%s" % (n + 1, "H" if w == 2 else "I"), d, base))
+        head = struct.unpack_from("<H" if w == 2 else "<I", d, 0x0C if w == 2 else 0x12)[0]
+        ok, _free = freelist_chain(slots, head, term)
+        if not ok:
+            fail("freelist_0x32_chain", "id=%#06x n=%d head=%#x" % (c.id, n, head))
+
+    # ---- spec/11 §11.10.1: 0x0038 is declared with 10-byte elements but shipped builds
+    # never populate it: every instance is the empty 14-byte form.
+    for c in doc.of_type(0x38):
+        if (c.size != 14 or struct.unpack_from("<H", c.data, 4)[0] != 0
+                or struct.unpack_from("<H", c.data, 6)[0] != 0
+                or struct.unpack_from("<H", c.data, 8)[0] != 10):
+            fail("rec_0x38_empty", "id=%#06x size=%d" % (c.id, c.size))
+
+    # ---- spec/11 §11.2.1: 0x001A is a 26-byte header, a non-decreasing u32[n] offset
+    # array and n 10-byte slots whose first u16 is a chunk id; an empty slot is all-zero
+    # with index 0xFFFF.
+    ids = {x.id for x in doc.chunks}
+    for c in doc.of_type(0x1A):
+        d = c.data
+        n = struct.unpack_from("<H", d, 4)[0]
+        if (c.size != 26 + 14 * n or struct.unpack_from("<H", d, 6)[0] != n
+                or struct.unpack_from("<H", d, 8)[0] != 10):
+            fail("rec_0x1a_slots", "id=%#06x size=%d n=%d" % (c.id, c.size, n))
+            continue
+        offs = struct.unpack_from("<%dI" % n, d, 0x1A)
+        if any(offs[i] > offs[i + 1] for i in range(n - 1)):
+            fail("rec_0x1a_slots", "id=%#06x offsets not ascending" % c.id)
+            continue
+        base = 0x1A + 4 * n
+        for k in range(n):
+            s = d[base + 10 * k:base + 10 * (k + 1)]
+            if len(s) < 10:
+                fail("rec_0x1a_slots", "id=%#06x slot%d short" % (c.id, k))
+                break
+            cid, _flag, _off, idx = struct.unpack("<HHIH", s)
+            if cid == 0:
+                if idx != 0xFFFF:
+                    fail("rec_0x1a_slots", "id=%#06x slot%d dead slot index=%#x"
+                         % (c.id, k, idx))
+                    break
+            elif cid not in ids:
+                fail("rec_0x1a_slots", "id=%#06x slot%d id=%#06x unresolved"
+                     % (c.id, k, cid))
+                break
 
     # ---- spec/11 §11.12: 0x003F is a fixed 180-byte label-sheet template.  +0x02 is the
     # (A,B) stamp with A = the record size; +0x04 is the sheet orientation (1 portrait,
