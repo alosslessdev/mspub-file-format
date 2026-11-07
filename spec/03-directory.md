@@ -185,6 +185,8 @@ Bit decomposition of the whole corpus:
 
 ```
 flags = 0x1440 | (bit3 << 3) | (bit5 << 5) | (bit7 << 7) | (cls << 8)
+; corpus domain: the 13 values above in 95/97, plus 0x17C0 (cls = 3, bit 7 set) only in the
+; five Publisher 98 publications
         0x1440 = bits 6 and 10, set on 10 732/10 732 records
 ```
 

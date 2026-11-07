@@ -14,7 +14,7 @@ unchanged.
 | `version_magic` | `Contents +0x02` | `0x22`, (`0x2C` = 2000+) | 95/97/98 all write `0x22` |
 | `format_version` | `Contents +0x04` | `200`, `300`, `710` | 300 = this family; loader also accepts the legacy pair 200/710 |
 | `header_tag` | `Contents +0x0C` | `125` (P95, and one P97 file), `136` (P97/97-deluxe), `616` (P98), `704` (version 200) | accepted per build; see chapter 02 §2.2 |
-| directory record `flags` | directory | `0x1440 \| (bit3<<3) \| (bit5<<5) \| (bit7<<7) \| (cls<<8)`, 13 values | every bit named below; the per-record writer forces bit 6 = 1 and bits 11/15 = 0 (chapter 03 §3.6) |
+| directory record `flags` | directory | `0x1440 \| (bit3<<3) \| (bit5<<5) \| (bit7<<7) \| (cls<<8)`, 14 values (13 in 95/97; `0x17C0` only in 98) | every bit named below; the per-record writer forces bit 6 = 1 and bits 11/15 = 0 (chapter 03 §3.6) |
 
 Bit decomposition of the 13-value domain (10 732 non-document records, all 493 documents):
 
@@ -41,6 +41,7 @@ Directory `flags` domain observed over all 493 documents (non-document records):
 
 ```
 0x1440 0x1448 0x14C0 0x1540 0x1548 0x1640 0x1648 0x1660 0x16C0 0x16C8 0x16E0 0x1740 0x1748
+(and 0x17C0, which occurs only in the five Publisher 98 publications: `cls = 3` with bit 7 set)
 ```
 
 The document record (index 0) instead carries `idHighWaterMark`, not a flags value.
