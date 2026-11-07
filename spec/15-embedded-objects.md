@@ -144,7 +144,7 @@ CompObj/UserType identity; the writer-version direction is INFERENCE]
 +0x08  u32 4                record kind (8 exceptions are print records)
 +0x0C  u32 1
 +0x10  u32 0xFFFFFFFF
-+0x14  u32 2 | 32 | 16      picture-type field, unidentified
++0x14  u32 Advf           advise/cache flags: 2 `ADVF_PRIMEFIRST` (1757) | 32 `ADVFCACHE_ONSAVE` (359) | 16 `ADVFCACHE_FORCEBUILTIN` (38); MS-OLEDS `OLEPresentationStream.Advf`, a reader-ignorable hint written by ole32
 +0x18  u32 0
 +0x1C  u32 width            HIMETRIC (0.01 mm)
 +0x20  u32 height           HIMETRIC
@@ -155,6 +155,23 @@ CompObj/UserType identity; the writer-version direction is INFERENCE]
 2 135 of 2 162 streams carry an exact WMF at `+0x28`; 18 carry the WMF plus
 trailing bytes; 8 are print records; one is an empty 40-byte descriptor. No DIB
 or bitmap payload occurs anywhere in `OlePres000`. [OBSERVED]
+
+`+0x14` is the MS-OLEDS `OLEPresentationStream.Advf` member (`CF_METAFILEPICT`
+at `+0x00`/`+0x04`, `DVASPECT_CONTENT` = 1 at `+0x0C`, `Lindex` −1 at `+0x10`,
+all constant here). The standard `ADVF` enum decodes the domain exactly
+(`PRIMEFIRST` 2, `ONLYONCE` 4, `FORCEBUILTIN` 16, `ONSAVE` 32); the spec
+marks it an implementation hint a reader MAY ignore. Proven pass-through:
+no shipped binary names or parses these streams (0 hits for `OlePres` ASCII
+or UTF-16 in `MSPUB.EXE` 95/97/98 and `PUBOLE98/32.DLL`); presentation I/O is
+delegated to ole32 (`OleSave`/`OleLoad`, writer `_MatSaveObjects@12`
+`PUBOLE98` VA `0x6001d830`, cache-fill `FUN_60016200` VA `0x60016200`,
+draw `_MatDrawObject@16` VA `0x60013710` with aspect `iconic ? 4 : 1` and
+cached extents, never descriptor bytes). Writer-side skew, mechanism
+unknown: `Advf` 32/16 occur only on clip-art-packaged objects with no
+per-object `Contents` (397/397) and never with a stale `0x80` bit (§15.8.1)
+(359/359 `0x00` at 32; 36/38 at 16); all `MSWordArt.2`/`MSDraw` are 2.
+[OBSERVED for the enum identity, the zero-reference scan (5 360 + 4 252 +
+3 825 fns + both PUBOLE layers), and the skew]
 
 ## 15.6 `\x02OlePres001` — print setup
 
@@ -252,11 +269,16 @@ Corroborating skew (not a rule): objects whose preview carries `Advf 32`
 (`OlePres000 +0x14`, §15.5) never show `0x80` (359/359 at `0x00`); `Advf 16`
 is `0x00` in 36/38; `Advf 2` mixes (`0x00` 1 125 / `0x80` 609). [OBSERVED]
 
-## 15.10 Open
+## 15.10 Closed
 
-* `0x0022` `+0x0F` flag — domain and negative correlations published in §15.8.1; the two
-  candidate readings are still undistinguished.
-* `\x03Internal` `x`/`y` bit — variant A/C splits by nothing measured (class, size, owner,
-  ordinal). Two readings remain: a saved-state flag or an allocation lane.
-* `OlePres000 +0x14` (2 / 32 / 16) — measured against the `0x0022` flag and object class with no
-  correlation; `[UNKNOWN]` picture-type field.
+* `0x0022` `+0x0F` — closed in §15.8.1: stale bit (`0x80` = needs update),
+  writer `_MatSaveObject@20` (`PUBOLE98` VA `0x60016bf0`), loader
+  `_MatLoadObject@20` (VA `0x60016d90`); counts corrected to 1 523/611.
+* `\x03Internal` `x`/`y` — closed in §15.4: class lane (C16 ⟺ descriptive
+  `Microsoft WordArt 2.0` UserType, 231/231); 12-vs-16 framing is a
+  writer-version lane.
+* `OlePres000 +0x14` — closed in §15.5: MS-OLEDS `Advf` (`PRIMEFIRST` 2 /
+  `ONSAVE` 32 / `FORCEBUILTIN` 16), ole32 pass-through, reader-ignorable.
+* `CompObj` tail — closed in §15.2: MS-OLEDS `Reserved1`, Length
+  `0x71B239F4`, remainder MUST-be-ignored; 16-vs-24 split records the OLE
+  write path (short WordArt without strings).
