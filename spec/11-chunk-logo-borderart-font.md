@@ -690,8 +690,9 @@ decompiled trees of `MSPUB.EXE` 98 (5 360 functions), 97 (4 252), 95 (3 293) or 
 (2 104) stores to the `count` word of a `0x0038` record, and the marker appears in none of
 them in a chunk-type dispatch (the `case 0x38` sites in the 98 build are command IDs
 paired with `0xa7`/`0xa9`, not chunk types). A reader must therefore treat a non-zero count
-as impossible in these generations and must not try to decode a 10-byte element; the record
-is `[UNKNOWN]` by construction, not by missing evidence. [OBSERVED, negative]
+as impossible in these generations and must not try to decode a 10-byte element; the
+record's payload meaning is unrecoverable from the shipped code — proven opaque with the
+scan scope stated — not an open question. [OBSERVED, negative]
 
 `tools/validate.py` enforces the empty form for every `0x0038` (`rec_0x38_empty`): 14 bytes,
 count 0, element size 10 — so a future instance with a payload fails loudly instead of
@@ -1072,8 +1073,8 @@ the `…716x` label files). [OBSERVED]
 
 ## 11.13 Open
 
-| Item | Status | Experiment |
-|---|---|---|
-| `0x0016 +0x04` style id | `[INFERENCE]` | decompile the story-container consumer in `MSPUB.EXE` and resolve `+0x04` against `0x0026`/`0x001F` entry order |
-| `0x004E` 45-byte element interior | partly closed: the four **line widths in points** are at `+0x14`/`+0x1A`/`+0x20`/`+0x26` (VA `0x004547f1` × `0x319C` EMU/pt) and `+0x0A` is a boolean tested by VA `0x004e279f`; the leading `u16` (`0x40/0x50/0x60/0x70`) and the `0xC0E4` colour words have **no reader** — all four widths are 0 in both instances, so no field of this record is exercised | decompile the table renderer around VA `0x0050b7d2` (5-element `0x2D`-stride stack array) and the `0x004e279f` caller to name the leading `u16` and the `0xC0E4` slots |
+| Item | Status |
+|---|---|
+| `0x0016 +0x04` serial | **closed**: `u32` document serial (§11.2), replicated in the `0x002D`/`0x002E` children, write-only — no reader in any shipped binary (scan scope in §11.2) |
+| `0x004E` 45-byte element interior | **closed**: four `{u32 colour, u8 width, u16 colour-ext}` side slots at `+0x13`/`+0x19`/`+0x1F`/`+0x25` feed the cell-stroke path (`0x0050c3cb` → `0x0050d4e0` → `0x004298b3` + GDI `Rectangle` at `0x0041de97`); `+0x0A` is a boolean consumed by the table-shape predicate `0x004e279f`; the head/trailer words have no reader and are proven opaque with the scan scope stated in §11.11.2 |
 | `0x0052` `+0x04` ordinal owner | **closed negative**: `+0x04` is a document-wide ascending sequence number (unique, 1…114 over 110 records), not a key and not a chunk id; `ptrA`/`ptrB` are persisted heap addresses. No code reads the chunk (scan scope and VAs in §11.11.1) | — |

@@ -60,12 +60,28 @@ bytes beyond the documented tail.
 | … | bytes | AnsiClipboardFormat | e.g. `"MS_ClipArt_Gallery"` |
 | … | u32 | `cbAnsiProgID` | includes the NUL: 7, 12, 14, 20 |
 | … | bytes | AnsiProgID | e.g. `"MSWordArt.2"` |
-| … | 16 or 24 | tail | always begins `F4 39 B2 71` |
+| … | 16 or 24 | `Reserved1` (MS-OLEDS `CompObjStream`; Length = `0x71B239F4`, remainder MUST-be-ignored) |
 
-Strings are length-prefixed **including** the terminating NUL. Two tail variants
-exist: 16 bytes (`F4 39 B2 71` + 12 zeros, 1 074 streams) and 24 bytes
-(`F4 39 B2 71`, `u32 8`, a varying u32, a u32 that is always 96 or 136, 8 zeros;
-971 streams, all WordArt). Tail semantics `[UNKNOWN]`. [OBSERVED]
+The tail's first DWORD sits at `Reserved1.Length` past the header + 3 ANSI
+strings; its value `0x71B239F4` exceeds `0x28`, so per MS-OLEDS every
+subsequent byte is reader-ignored territory. The 16-byte form is
+`F4 39 B2 71` + 12 zeros (1 074 streams, byte-identical); the 24-byte form is
+`F4 39 B2 71` + `u32 8` + DWORD + DWORD ∈ {96, 136} + 8 zeros (971 streams,
+all `MSWordArt.2` with empty UserType and Clipboard strings, CompObj size 76).
+The split records which OLE write path ran: the 24-byte form is exactly the
+short WordArt record with no UserType/Clipboard strings (WordArt *with*
+descriptive strings takes the 16-byte form, 268×); both forms co-occur inside
+31 files, i.e. per-object OLE-library behaviour, not a file switch. The
+varying DWORD (167 distinct values, ≥ 4.7M, 4-aligned) equals no persisted
+size in 0/971 cases and the 96/136 DWORD separates no Contents-length class —
+both are ignored writer-side residue that a reader MUST preserve opaquely.
+Writer and reader are the OLE runtime (`OleCreate*`/`OleSave` →
+`OleLoad` in `PUBOLE98.DLL`: `_MatCreateObject@32` VA `0x60012cf0`,
+`_MatLoadObject@20` VA `0x60016d90`); no Publisher function parses past the
+ProgID: PE byte search for `F4 39 B2 71` finds 0 hits in `MSPUB.EXE`
+95/97/98, `QS98.DLL`, `PUBOLE98/32.DLL`, and a decomp-text sweep finds 0 hits
+in all 13 437 functions (5 360 + 4 252 + 3 825 + 208 + 208 + 225).
+[OBSERVED for the corpus identity; OS-structure member by offset]
 
 Class table (whole corpus):
 
@@ -95,11 +111,30 @@ Six `u16` fields, two shapes, plus optional trailing zeros:
 | C16 | 16 | `00 00 01 00 00 00 00 00 01 00 00 00 00 00 00 00` |
 
 As `u32` groups the record is `[0x00010000, x, y]` with exactly one of `x`, `y`
-equal to 1 (A: x=1; C: y=1). The choice correlates with nothing measured
-(object number, class, sizes, owner) — `[UNKNOWN]`. [OBSERVED]
+equal to 1 (A: x=1; C: y=1). The `x`/`y` word is a class lane: **C16 occurs
+iff the object's `CompObj` UserType is the descriptive `Microsoft WordArt
+2.0` string, 231/231**; A (A12 591 + A16 417) covers everything else —
+empty-UserType converted WordArt (971/971 take the 24-byte `CompObj` tail),
+all `WordArt 3.0` (20), all `/I``` (13) — with only 4 A-side exceptions
+carrying a WA2 UserType (2 unique PageWizard templates × 2 corpora:
+`ITINRARY` Obj 29, `SITTRLST` Obj 1). No C16 ever pairs with an empty
+UserType, a WA3 UserType, or a 24-byte tail. The 12-vs-16 framing is a
+separate writer-version lane (A12: 567/591 in root-`CompObj`-94 Pub-3.0
+documents; A16: 241/417 in root-78 Pub-2.0 documents; C16 mixed).
+[OBSERVED 1 239/1 239]
 
-The document-level `\x03Internal` is 12 bytes in all documents with the same
-`00 00 01 00 00 00` prefix followed by a `u16` in 0…181; also `[UNKNOWN]`.
+The reader is the shipped OLE layer. `PUBOLE98.DLL` carries the CFB names as
+wide strings and opens the lanes explicitly: per-object opener `FUN_60017af0`
+(VA `0x60017af0`) selects the Internal lane for `param_4 == -1` and
+`Contents` for `0`, building `Object N` names in `FUN_600171a0`/
+`FUN_60017210` (VAs `0x600171a0`/`0x60017210`) via `swprintf("%s %ld")`.
+The live object selector keys off the `CompObj` CLSID, not the Internal
+bytes: `_MatLoadObject@20` (VA `0x60016d90`) reconstitutes via
+`OleConvertOLESTREAMToIStorage` + `OleLoad`, then `FUN_60016200` branches
+presentation/extent handling on the CLSID at `obj+0x96` (against 16 zero
+bytes and the OLE1-converted class). A reader MUST preserve the 12/16 bytes
+and MUST NOT treat `x`/`y` as geometry. [OBSERVED for the VAs and the
+CompObj/UserType identity; the writer-version direction is INFERENCE]
 
 ## 15.5 `\x02OlePres000` — preview metafile
 
@@ -155,7 +190,7 @@ mechanism survived testing. [OBSERVED]
 +0x08  u16 "MO"     4D 4F
 +0x0A  u16 N        object number -> Objects/Object N
 +0x0C  3 bytes 0
-+0x0F  u8  0x00 (1201) or 0x80 (933)   per-reference state, see 15.8.1
++0x0F  u8  0x00 (1523) or 0x80 (611)    stale bit, see 15.8.1
 +0x10  u16 0
 ```
 
@@ -185,23 +220,37 @@ opposite; the assumption was never measured and the measurement refutes it.) [OB
 Nesting depth is one level in every file (no `Objects` inside an `Object N`); nothing in the
 format forbids deeper nesting. `[OBSERVED for depth; INFERENCE for the general case]`
 
-### 15.8.1 The `+0x0F` flag
+### 15.8.1 The `+0x0F` stale bit
 
-Domain `{0x00, 0x80}` (1 201 / 933 over 2 134 references). Tested against every object property
-available and **no correlation holds**:
+Domain `{0x00, 0x80}` (1 523 / 611 over 2 134 references; all exactly 18 bytes).
+`0x80` means the object presentation is **stale — the object needs updating**;
+`0x00` means up to date. [OBSERVED]
 
-| Hypothesis | Result |
-|---|---|
-| object class / ProgID | rejected — `MSWordArt.2` occurs 644× with `0x00` and 573× with `0x80` |
-| packaged (`Ole10Native`) vs nested document | rejected — both kinds occur under both values |
-| owner shape marker | rejected — every `0x0022` parent is a `0x0003` shape, both values occur |
-| `CompObj` length (class variant) | rejected — all four lengths occur under both values |
-| preview size (icon vs content) | rejected — `>2k` previews occur 1 145× at `0x00` and 409× at `0x80` |
+Writer and reader are the shipped OLE layer, not `MSPUB.EXE`. The writer is
+`_MatSaveObject@20` (`PUBOLE98.DLL` VA `0x60016bf0`; the 95-era `PUBOLE32.DLL`
+export is the same function at `0x600165A0`): it serialises the 10-byte
+`MO`-body as `MO(2) + N(2) + zero(1) + flags(2) + 0(2)`, and `+0x0F` is the
+high byte of a copy of the in-memory object flag word at `obj+0x92` shifted
+so that bit `0x40` lands at `0x80` — `0x80` iff the flag is set, `0x00`
+otherwise. The loader is `_MatLoadObject@20` (VA `0x60016d90`), which reads
+the `4D 4F` + 8 bytes and restores the bit (`(u16 & 0x8000) >> 9`) into
+`obj+0x92` bit `0x40` before calling `OleLoad`. No function in the `MSPUB.EXE`
+95 (3 825 fns), 97 (4 252) or 98 (5 360) decompiled trees reads `rec+0x0F`:
+the only `== 0x22` marker dispatch in each (`MSPUB.EXE` 95 VA `0x00444c1d`,
+97 VA `0x0042c6d2`, 98 VA `0x004f6f1d`) forwards to the object loader.
 
-So it is a per-reference state, not a class discriminator. `[OBSERVED]` The two readings still
-consistent with the data are "object needs updating" and "display as icon"; the discriminating
-experiment is to save one document twice, once with an object inserted as an icon and once as
-content, and diff the byte. A reader must preserve it.
+The flag is set when the server reports the object not running
+(`OleIsRunning == 0`, in `FUN_600164C0`) and cleared once the object is
+updated (`_MatUpdateObject@8`, VA `0x60013be0`; also `_MatRevertObject@4` and
+the load path); the idle loop (`_MatFIdle@12`, VA `0x60011730`) calls the
+updater and clears it. The "display as icon" reading is excluded: iconic is a
+different bit of the same word (`_MatIsIconic@8` tests bit `0x08`). A reader
+that only draws the cached presentation ignores the bit; a re-saver must
+preserve it. [OBSERVED for the VAs and the branch behaviour]
+
+Corroborating skew (not a rule): objects whose preview carries `Advf 32`
+(`OlePres000 +0x14`, §15.5) never show `0x80` (359/359 at `0x00`); `Advf 16`
+is `0x00` in 36/38; `Advf 2` mixes (`0x00` 1 125 / `0x80` 609). [OBSERVED]
 
 ## 15.10 Open
 

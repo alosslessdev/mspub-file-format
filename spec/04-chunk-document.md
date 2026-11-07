@@ -104,16 +104,30 @@ the order equals the chunk-offset order. [OBSERVED]
 Note the consequence for a validator: the number of pages can be recovered *twice*, from the
 PAGE chunk count and from `(size − 0x74)/2 + 1`; both must agree.
 
-## 4.5 `+0x10` — a view-scale code, not the saved page
+## 4.5 `+0x10` — the measurement-unit code, not the saved page
 
-`0` in 127 of the 128 Publisher 95 templates (`3` in one; one of the two `.JSP` files carries
-`1`), `0` in 105/108 Publisher 97, 194/250 Publisher 97 Deluxe and 4/5 Publisher 98 documents.
+`0` in 127 of the 128 Publisher 95 templates (`3` in `PAGEWIZ/MODERN.PUB`), `0` in 105/108
+Publisher 97, 194/250 Publisher 97 Deluxe and 4/5 Publisher 98 documents. The nonzero
+values over all 493 files are `1` in six files (the `WCOMPCLS`/`WCOMPJAZ`/`WCOMPMOD`
+greeting-card companions in `p97/x` and `p97deluxe/x/PageWiz`) and `3` in two
+(`PAGEWIZ/MODERN.PUB`, `p98/x/CLRCHK.JSP`); no corpus document uses a value above `3`.
 It is **not** the saved page: that value is `Contents` header `+0x10` (chapter 02 §2.4), which
 is the fourth entry of the page order in 487/493 files and is what the open path consumes.
-VA `0x0043F1AB` turns the DOCUMENT word into a scale divisor — `16` for `0`, `8` for `1`,
-`10` otherwise — and multiplies it into a view ratio; VA `0x00428CFB` formats the same word for
-display. The meaning of the three codes is [UNKNOWN]; no corpus document uses a value above
-`3`. [OBSERVED for the domain]
+The word is the ruler/display measurement unit. The converter is VA `0x00411587`, whose
+divisor table VA `0x00411667` maps the code to EMU per unit — `0`/`0xD` → `0xDF3E0`
+(914400, one inch), `1` → `360000` (914400/2.54, one centimetre), `2` → `0x25350`
+(152400 = 914400/6, one pica), `3`/`4`/`5`/`0xE` → `0x319C` (12700 = 914400/72, one
+point), `8` → `0x27B` (635 = 914400/1440, one twip) — so `0` = inches, `1` = centimetres,
+`3` = points. Every quotient is exact, the same arithmetic that fixes the EMU size rule
+in §4.6. The ruler builder VA `0x00439F58` switches on the same word (`0` inches, `1`
+centimetres, `2`/`3` picas-or-points, with `10`/`0xB` as its zoom-shifted variants of
+`0`/`1`), and the page-setup path VA `0x004DC160` passes the word as the unit argument
+when it formats page-size extrema. The two view sites behave accordingly: VA `0x0043F1AB`
+turns the word into a scale divisor — `16` for `0`, `8` for `1`, `10` otherwise — and
+multiplies it into a view ratio, and VA `0x00428CFB` formats the same word for display
+(ruler-label multiplier `6` for code `2`, `1` otherwise). [OBSERVED: the divisor table, the
+ruler switch and both view VAs are in MSPUB.EXE 95; the inch/cm/point names are the only
+readings consistent with the exact EMU quotients]
 
 ## 4.6 Geometry fields and units
 
@@ -145,7 +159,7 @@ physical sheet (banners/posters), where the sheet size is not defined. [OBSERVED
 ## 4.7 `flags0A` — the document flags word at `+0x0A`
 
 The application reads this word as `*(u16 *)(document + 0x0A)` (and its high byte as
-`+0x0B`). Five bits have an identified meaning; the rest are never tested.
+`+0x0B`). Six bits have an identified meaning; the rest are never tested.
 
 | Bit | Mask | Meaning | Evidence (MSPUB.EXE 95) |
 |---|---|---|---|
@@ -154,14 +168,25 @@ The application reads this word as `*(u16 *)(document + 0x0A)` (and its high byt
 | 10 | `0x0400` | **Two-Page Spread** | View menu item `0x51` label from the table at VA `0x0046DE3E` with index `(flags & 0x400) == 0` — entries `"Single Pag&e"` / `"Two-Pag&e Spread"` (VA `0x0043851F`); VA `0x0045BEF0` iterates page *pairs* only when the bit is set; VA `0x00435BE4` maps the current page to its spread partner |
 | 11 | `0x0800` | **no kerning cap** — the text run's kerning-pair limit becomes 32000 instead of `u16@+0x3E` | VAs `0x0040BFA6` and `0x00435FD7`: `uVar = 32000; if ((flags_hi & 8) == 0) uVar = *(u16 *)(document + 0x3E);` |
 | 8 | `0x0100` | transient "document is being re-flowed" latch | set at VA `0x0045F38A` (`|= 1` on byte `+0x0B`), cleared with `& 0xFEFF` at VAs `0x0045F38A`, `0x0053496D`; never present in the corpus |
+| 12 | `0x1000` | render-path gate (Publisher 97+; residue in 95) | read by VA `0x004E788E` (97) / `0x00453909` (98), which selects between two page-render paths on the bit; written from the page-setup dialog by VA `0x004B8B44` and copied document→page record by VA `0x0042D7B8`; Publisher 95 has no reader or writer — its five `0x1210` files carry the bit as forward residue |
 
-Bits 0, 1, 3, 9 and 12 have no reader in MSPUB.EXE 95 beyond incidental writes
-(`VA 0x004D6C02` sets bit 1, `VA 0x0053496D` copies bit 3 into a save record), so their
-meaning is `[UNKNOWN]`. The corpus domain over 493 files is
-`{0x0000, 0x0010, 0x0016, 0x0210, 0x0212, 0x0216, 0x021E, 0x0406, 0x0410, 0x0416,
-0x0606, 0x0610, 0x0616, 0x061E, 0x1000, 0x1010, 0x1210}` — every observed value is a
-subset of `0x161E`. [OBSERVED for the masks and the string tables; the names are the
-product's own menu labels]
+Bits 0, 1, 3 and 9 have no reader in any shipped build: the exhaustive line-level scan
+of every `document + 0x0A` word access finds only the masks `2`, `4`, `8`, `0x10` and
+`0x400` tested (95: 3 293 functions; 97: 4 252; 98: 5 360), and the decimal/hex offset
+enumeration of all three document pointers shows no access to any other bit. Bit 1 is
+set by VA `0x004D6C02` but never tested back; bit 3 is copied into the save record by
+VA `0x0053496D` (`(word & 0xFFFF0008) >> 3`, i.e. the bit is preserved across the save
+dialog, never branched on). All four bits are therefore proven write-only/pass-through
+over the full scan scope, and every observed value stays a subset of `0x161E`. Bit 12
+(`0x1000`) is different: Publisher 95 neither reads nor writes it, but Publisher 97
+reads it in VA `0x004E788E` (Publisher 98 VA `0x00453909`, same shape) — the
+open/render gate that selects between two page-render paths according to the bit, also
+propagated document→page record by VA `0x0042D7B8` and set from the page-setup dialog by
+VA `0x004B8B44`. Five Publisher 95 files carry it (`0x1210` in `PAGEWIZ/BRCATALG.PUB`,
+`CLINEAR.PUB`, `ELINEAR.PUB`, `POSTER.PUB`, `VLINEAR.PUB`) as forward residue the 95
+build never interprets; the 97/98 builds do. [OBSERVED for the masks, the dialog
+writer and both gate VAs; the write-only finding for bits 0/1/3/9 is a closed negative
+over all three executables]
 
 Bit 10 is the bit that turns a document into a two-page-spread publication, and it is the
 same bit that `VA 0x0045BEF0` keeps in step with `coordinateSystem == 2` (§4.10).
@@ -195,8 +220,8 @@ the complete read/write map below.
 
 | Offset | Read | Written | Meaning |
 |---|---|---|---|
-| `+0x2E` | **never** | **never** | print paper code, preserved from the file that created the document |
-| `+0x30` | **never** | **never** | print orientation code, same |
+| `+0x2E` | **never** | **never** | print paper-size code (`dmPaperSize`), a stale copy of `0x0029+0x50` frozen at file-creation time |
+| `+0x30` | **never** | **never** | second print-setup word, same provenance; proven not to be `dmPaperLength` (§4.9.2) |
 | `+0x36` | **never** | **never** | unknown small code, same |
 | `+0x3C` | `0x00409F85` | `0x00557A69` | default tab interval (§4.9.1) |
 | `+0x64` | `0x004BF85F`, `0x004C6C37`, `0x00561D04` | — | publication type selector (§4.9.3) |
@@ -247,16 +272,39 @@ word is `Npages − 1`.
 
 ### 4.9.2 `+0x2E`, `+0x30`, `+0x36` are never interpreted
 
-No function in either executable reads or writes these words. They keep whatever the
-creating application wrote: `+0x2E` takes `{0,1,2,4,7,14}` and `+0x30` takes `{0,4,5,6,13,14}`
-over 493 files. The pair sits exactly where a 16-bit `DEVMODE` keeps `dmPaperSize` (`+0x2E`)
-and `dmPaperLength` (`+0x30`), and `dmPaperSize` is the only reading that fits the value set
-(`1` letter, `2` letter-small, `4` ledger, `7` executive, `14` folio); `+0x30`'s values are too
-small for `dmPaperLength` (1/10 mm), so its meaning stays [UNKNOWN]. The print path does not
-use this pair: the printer block the application really reads is the one at `+0x2C`…`+0x40` of
-`DAT_005870E0`, from which VA `0x00457842` copies `+0x2C`/`+0x2E`/`+0x30`/`+0x3C`/`+0x3E`/`+0x40`
-into six print-device globals. Nothing bridges that block and the DOCUMENT word. `+0x36` has
-no reading at all. [OBSERVED negative]
+No function in any of the three executables reads or writes these words: the complete
+offset enumeration of every document-pointer access (`DAT_00587AA8` in 95,
+`DAT_005D27C8` in 97, `DAT_00613920` in 98) contains no decimal `46`/`48` and no
+`0x2E`/`0x30`, and neither does the inline chunk-table form. The DLLs never touch the
+DOCUMENT chunk at all (scan scope in §4.9). The three words are therefore pure residue:
+they arrive with the file and leave with it, and no UI or layout path branches on them.
+
+Their provenance is the creating application's print setup, frozen at file-creation time.
+`+0x2E` is the `dmPaperSize` paper code: it takes `{0,1,2,4,7,14}` over 493 files
+(`1` letter, `2` letter-small, `4` ledger, `7` executive, `14` folio) and equals the live
+print-setup record's `0x0029+0x50` (`dmPaperSize`) in 103/130 Publisher 95 files. The 27
+mismatches are all staleness in one direction: the `0x0029` record was updated by a later
+print-setup edit while the DOCUMENT word kept its creation value — `0x0029+0x50 == 265`
+(`DMPAPER_USER` + driver offset, a driver-defined custom size) in 18 of them with
+`+0x2E` still `0`/`1`/`7`, `0x0029+0x50 == 15` (quarto) in 2 with `+0x2E == 0`, and one
+letter→executive drift (`+0x2E == 1`, `0x0029+0x50 == 7`). [OBSERVED over the 130-file
+joint distribution of the two words]
+
+`+0x30` is proven **not** to be `dmPaperLength`. A 16-bit `DEVMODE` `dmPaperLength` is a
+length in tenths of a millimetre and is only defined when `dmPaperSize` is custom; the
+observed domain is `{0,4,5,6,13,14}` over 493 files — two orders of magnitude too small
+(letter would require 2790, the 20-inch banners 5080) — and the eleven files with
+`+0x2E == 0` (custom) carry `0`/`4`, not a length. The word agrees with the live record's
+`0x0029+0x52` in 68/130 files (equality concentrated on `{5,6}`), so it is the same
+creation-frozen print-setup word, but no reader assigns it a role and its value set fits
+no `DEVMODE` length member; its meaning beyond "second print-setup residue word" is not
+recoverable from the shipped code. [OBSERVED negative with the refutation above]
+
+The print path does not use this pair: the printer block the application really reads is
+the one at `+0x2C`…`+0x40` of `DAT_005870E0`, from which VA `0x00457842` copies
+`+0x2C`/`+0x2E`/`+0x30`/`+0x3C`/`+0x3E`/`+0x40` into six print-device globals. Nothing
+bridges that block and the DOCUMENT word. `+0x36` has no reading at all. [OBSERVED
+negative]
 
 ### 4.9.3 `+0x64` — publication type selector
 

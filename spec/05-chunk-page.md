@@ -120,15 +120,19 @@ PAGE record. The first page is identified only by DOCUMENT `+0x08`. The first pa
 
 **Never read by any code path.** It is a write-only / pass-through field: the load path
 decompresses the file record into the chunk object's buffer verbatim (`FUN_00444C1D` @
-`0x00444C1D`, filling the buffer returned by `FUN_00401148` @ `0x00401148`), and the save
-path emits record bytes without interpreting them (`FUN_0052FDC8` @ `0x0052FDC8` →
+`0x00444C1D`, filling the buffer returned by `FUN_00401148` @ `0x00401148`, which zeroes
+fresh allocations — so a newly created page carries `0`), and the save path emits
+record bytes without interpreting them (`FUN_0052FDC8` @ `0x0052FDC8` →
 `FUN_0052FD3E` @ `0x0052FD3E`; the stream-to-stream record copy is `FUN_00538D18` @
 `0x00538D18`). No routine computes `+0x08` and no routine consumes it.
 
 Scan scope (closed negative): every function in the Publisher 95 decompilation
 (`C:\pwrk\decomp95`, 3 293 functions), the Publisher 97 tree (`notes/p98/decomp97`, chunk
 table base `DAT_005D08B4`) and the Publisher 98 tree (`notes/p98/decomp98`, base
-`DAT_006170CC`). Findings:
+`DAT_006170CC`), plus the helper modules, which never reference the chunk stream at all
+(`PUBDLG.DLL`, `MSPUBW32.DLL`, `PUB3STP.DLL`, `MSPUBQ32.DLL`, `COMPLINC.DLL`,
+`PUBOLE32.DLL`, `PUB4STP.DLL`, `QS98.DLL`: no `0xACE8` stream-magic reference and no
+chunk-table access in any of their decompiled trees). Findings:
 
 * The only accessors that fetch a u16 from a chunk record by field offset are
   `FUN_0040515B` (offset `+0x18`) and the arbitrary-offset reader `FUN_00444DB5`
@@ -142,12 +146,20 @@ table base `DAT_005D08B4`) and the Publisher 98 tree (`notes/p98/decomp98`, base
   named by `DOCUMENT/object record +0x4E` (the text/embedded store). None is a `0x14`
   record. [OBSERVED, binary]
 
-What the writer put there is a small **4-bit per-page authoring field** — `1` ×3 and `2` ×2
-on the five greeting-card last pages of P95, but `2, 3, 5, 6, 7, 8` across the P97 corpus
-(`CLASSIC` 7, `JAZZY` 8, `MODERN` 3, `PLAIN` 6, `class_cd`/`modrn_cd` 3, `jazzy_cd` 2,
-`plain_cd` 5), and all zero in P98. Its bit meaning is not recoverable from the binaries
-because no consumer exists; it is preserved verbatim so a reader must carry it through
-unchanged. [OBSERVED for the values; [UNKNOWN] for the semantics]
+The value set is a small per-page authoring stamp confined to one positional identity:
+the **last page of the greeting-card templates**. In P95 it is `1` ×3 and `2` ×2, always
+on chunk `0x10B` at page index 4 of 5 (`PAGEWIZ/CLASSIC.PUB` 1, `CLASS_CD.PUB` 2,
+`JAZZY.PUB` 1, `MODERN.PUB` 1, `PLAIN.PUB` 2 — all `pageKind 0`). In P97 it is the last
+page (index 19 of 20) of the same four cards (`CLASSIC` 7, `JAZZY` 8, `MODERN` 3, `PLAIN`
+6; the `p97deluxe` companions carry `class_cd`/`modrn_cd` 3, `jazzy_cd` 2, `plain_cd` 5).
+P98 carries all zero. The domain over all 727 pages is therefore
+`{0,1,2,3,5,6,7,8}` — a 4-bit field (`8` occurs), zero everywhere except the card back
+page, with the value varying by card design and generation. No writer exists in the
+shipped code (the constructor zeroes it; no path stores to a `0x14` record's `+0x08`),
+so the stamp arrives baked into the template and no consumer interprets it: a reader
+must preserve it verbatim. [OBSERVED for the values and the positional identity; the
+per-value semantics are unrecoverable from the shipped binaries — proven opaque over
+the scan scope above, not an open question]
 
 ## 5.6 Child id list
 

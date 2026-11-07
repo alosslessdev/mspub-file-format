@@ -102,13 +102,46 @@ child. 22 instances, 22/22 with a `0x0021` child.
 +0x02  u16  0x1616          stamp (fixed-part length B = 0x16)
 +0x04  u16  imageDataId     id of the 0x21 child  (22/22)
 +0x06  u32  0xFFFFFFFF
-+0x0A  s32  dx              [UNKNOWN] unit
-+0x0E  s32  dy              [UNKNOWN] unit
-+0x12  u32  0 or 1          [UNKNOWN]
++0x0A  s32  top             top edge of the WMF outer window, twips (22/22)
++0x0E  s32  right           right edge of the WMF outer window, twips (22/22)
++0x12  s32  bottom          bottom edge of the WMF outer window, twips (22/22)
 +0x16  u32  nameLen
 +0x1A  u32  nameLen         duplicate
 +0x1E  char[nameLen] name   ASCII, NUL-terminated
 ```
+
+The three `s32` at `+0x0A`/`+0x0E`/`+0x12` are the cached source window of the
+owned metafile: with `(Y0, X0)` the first `META_SETWINDOWORG` (`0x020B`)
+parameters and `(H, W)` the first `META_SETWINDOWEXT` (`0x020C`) parameters of
+the `0x0021` payload, the triple is `(Y0, X0 + W, Y0 + H)` — the top, right and
+bottom edges of the outer window in twips (the metafiles are authored at
+1440 units/in, so window units are twips). Verified 22/22 over every `0x0027`
+instance in `p95/x`, `p97/x` and `p97deluxe/x` (`p98/x` has none). The only
+edge not cached is the left (`X0`, always 0 or −1); it is recovered from the
+metafile itself at render time. Units are twips, not EMU: full-page pictures
+reproduce letter dimensions exactly (`(0, 15840, 12240)` = 11 × 8.5 in
+landscape; `(0, 12247, 15850)` portrait), and border tiles measure
+≈ 0.4 × 0.6 in, matching their artwork.
+
+The former "`+0x12` flag, 0 or 1" reading was a mis-split of the worked
+example: `+0x12` is the bottom edge, an `s32` coordinate whose domain spans
+−1 … 15850. Border tiles anchor their window at negative origins so the
+tile's bottom-right corner lands at the page edge (e.g. `pdir62p.wmf`:
+`(−793, 613, −1)` = window `(−1, −793)–(613, −1)`), which is why small values
+cluster at −1/0/1 while full-page pictures carry page heights. [OBSERVED]
+
+Purpose: the record is the shared gallery/border resource. All 22 instances
+are children of the DOCUMENT chunk (`0x0015`), each owns exactly one `0x0021`
+child (the `+0x04` id resolves to a `0x0021` chunk 22/22), and the name is the
+gallery id (`pdir*.wmf`, 15 distinct names), not a filesystem path: no `pdir`
+or `.wmf` literal occurs in any shipped `MSPUB.EXE`. `PICSTORE.DLL`
+(`p95/x/SHARED/ARTGALRY/`, also shipped under `p97`/`p97deluxe`/`p98`) exports
+the `Add/Get/SetPictureRef` runtime for those ids, but no binary in the
+corpus maps a `pdir` name to file bytes — the mapping lives in the gallery
+(`ARTGALRY.EXE` imports `GetPictureRef`); a reader resolves the picture
+through the `0x0021` child and uses the cached triple for placement without
+re-parsing the metafile. [OBSERVED for the linkage and the corpus identity;
+INFERENCE for the placement-cache use]
 
 `chunkSize == 0x1E + nameLen` in 22/22. All 22 names end in `.wmf` (`pdir62p.wmf`,
 `pdir71p.wmf`, `pdir47l.wmf`, …) — the writer's internal name for the imported metafile,
@@ -149,8 +182,8 @@ Both are enforced by `tools/validate.py` (`image_data_length_prefix`, `image_dat
 * `0x0039` is a 48-byte (56 in 98) document-level record with no image children — the
   earlier suggestion that it is image-bearing was based on a misread marker (`39` decimal
   = `0x27`); its role is documented in chapter 11 and its *purpose* is `[UNKNOWN]`.
-* `0x0027` `+0x0A`/`+0x0E` (`dx`, `dy`) units — `[UNKNOWN]`; the values (−793, +613) are far
-  too small to be EMU and may be a crop offset in metafile units.
+* `0x0027` triple closed in §8.4.1: cached WMF outer-window edges (top, right,
+  bottom) in twips, 22/22; `+0x12` is the bottom edge, not a flag.
 
 Closed since the previous revision: the Publisher 98 24-byte growth; see §8.7.1.
 
