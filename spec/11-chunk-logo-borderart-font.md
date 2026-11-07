@@ -67,20 +67,34 @@ account for the re-purposing that came with that growth.
 ## 11.2 Story container `0x0016`
 
 ```
-+0x00 u16 0x0016
-+0x02 u8  0x1A              A
-+0x03 u8  0x10              B
-+0x04 u16 styleId           a style id, NOT a chunk id
-+0x06 u16 0
-+0x08 u16 id of the 0x001A chunk
-+0x0A u16 id of the 0x001C chunk
-+0x0C u16 id of the 0x002E chunk
-+0x0E u16 id of the 0x002D chunk
+0x00 u16 0x0016
+0x02 u8  0x1A              A
+0x03 u8  0x10              B
+0x04 u32 serial            document serial, replicated in the 0x002D/0x002E children
+0x08 u16 id of the 0x001A chunk
+0x0A u16 id of the 0x001C chunk
+0x0C u16 id of the 0x002E chunk
+0x0E u16 id of the 0x002D chunk
 ```
 
 Fixed 16 bytes (130/130). Slot order is `1A, 1C, 2E, 2D` — not ascending marker order.
-`+0x04` resolves to a live chunk in only 8 documents, so it must not be resolved as an
-id. [OBSERVED for the layout; INFERENCE for the style-id reading]
+`+0x04` is a document serial, not a style id and not a chunk id: its value (2…13 628,
+high word 0 in 130/130) is byte-identical to `u32@+0x16` of the same document's `0x002E`
+child in 130/130 documents and to `u32@+0x16` of its `0x002D` child in 129/130 (the one
+exception is `SITTRLST.PUB`, whose `0x002D` carries 10 against 175 in the other two
+records). It exceeds the entry count of every table it could index — larger than
+`n` of the `0x001A` child in 130/130, than `count` of the `0x0026` table in 130/130 and
+than `n` of the `0x001C` child in 127/130 — so no entry array can be addressed by it.
+The earlier "style id, NOT a chunk id" reading is refuted by the replication: a style
+selector would not be identical in three independent records. No shipped binary reads
+`+0x04` back — the only consumers of the story container resolve its child ids
+(`MSPUB.EXE` 95 VA `0x00406088` / `0x0040148c` read the `0x001A` id at `+0x08` and copy
+slots out of it with the fixed-element accessor VA `0x004017d7`; `MSPUB.EXE` 98 VA
+`0x0050e030` reads the child id at in-memory `+0x10` and indexes it with VA
+`0x004fc5a9`) — so the serial is **write-only**: a reader must preserve it verbatim and
+must neither resolve it nor index by it. Scan scope: `MSPUB.EXE` 95 (3 826 functions),
+97 (4 252) and 98 (5 360). [OBSERVED for the layout, the replication and the scan;
+INFERENCE that the number counts document edits, which nothing verifies]
 
 ### 11.2.1 `0x001A` — the story's run list
 
@@ -117,9 +131,15 @@ The slot is `{u16 chunkId, u16 flag, u32 offset, u16 index}`; the `chunkId` is t
   by a link value, because it is the fixed-element flavour and has no offset table).
 * the `u32` field steps by 4 between consecutive live slots (0, 24, 28, 32, 36, 40, 44 in
   `BMEMO1.PUB`), so it is a byte offset into a 4-byte-granular table, and `index` is an
-  independent small ordinal. Which table `offset` addresses, and what `flag` (1 in 4 556 of
-  4 854 live slots) means, remain `[INFERENCE]` — the record is only ever consumed as a
-  list of run ids.
+  independent small ordinal. The consumers confirm the use, if not the names:
+  `MSPUB.EXE` 95 VA `0x00406088` copies a slot out with the fixed-element accessor VA
+  `0x004017d7`, branches on the slot `flag` (`2`/`3` take the alternate story path), and
+  reads the slot's range as two consecutive `u32` words through the offset-table accessor
+  VA `0x00401b19` (which addresses the `u32[n]` prefix: element `k+1` is the array word
+  `k`); `MSPUB.EXE` 98 VA `0x0050e030` indexes the same array from the shape's story
+  position with VA `0x004fc5a9`. What `offset` addresses, and what the non-`1` `flag`
+  values select, remain `[INFERENCE]` — the record is consumed as a list of run ids plus
+  their ranges.
 
 Worked example — `p95/x/PAGEWIZ/BMEMO1.PUB` id `0x018E`, 222 bytes, `n = 14`:
 `u32[14] = (20, 20, 36, 36, 130, 130, 222, 222, 302, 302, 347, 347, 368, 368)` (seven
@@ -810,15 +830,32 @@ element — so `0x004F.kind ∈ 1…5` is a **format index into the five `0x004E
 `+0x14`, `+0x1A`, `+0x20`, `+0x26` are each passed to VA `0x004547f1`, which converts the
 byte to EMU as `b * 0x319C` (12 700 EMU = 1 pt) for `b < 0x80`, a 1/3-pt fractional form
 for `b ≥ 0x81`, and `0` for `0xFF` — i.e. four **line widths in points** (the four sides
-of a cell). VA `0x0050c3cb` reads them per side when it strokes a cell, and
-`0x0050b7d2` keeps a 5-element `0x2D`-stride scratch array of them. All four are `0` in
-both `0x004E` instances, so the widths are unexercised. The remaining interior — the
-leading `u16` (`0x40`/`0x50`/`0x60`/`0x70`, i.e. a 4-state value with a `0x10` step), the
-`0xC0E4` words and the `0x6C` constant — has no reader: the `0xC0E4` doublet is the
-unset-colour sentinel of chapter 06 §6.3 (VA `0x0040402e` writes `0xC0E40000` /
-`0xC0E40007` as "no colour"), so the words are colour slots, but no `0x004E` consumer
-reads them. Field semantics inside the 45-byte element remain `[UNKNOWN]` beyond the four
-widths. [OBSERVED for the accessor, the index relation and the widths]
+of a cell). All four are `0` in both `0x004E` instances, so the widths are unexercised.
+`[OBSERVED for the accessor, the index relation and the widths]`
+
+Each side's colour travels with its width. VA `0x0050c3cb` strokes one cell side at a
+time: for side 1 it passes `u32@+0x13` and `u16@+0x17` to the pen setter VA `0x0050d4e0`,
+for side 2 `u32@+0x19` / `u16@+0x1D`, for side 3 `u32@+0x1F` / `u16@+0x23`, for side 4
+`u32@+0x25` / `u16@+0x29` — each pair adjacent to that side's width byte — and
+`0x0050d4e0` forwards both words to VA `0x004298b3` before stroking the side's rectangle
+with the GDI `Rectangle` primitive (VA `0x0041de97`). A side whose width byte is `0`
+takes the no-stroke path instead. So each 45-byte element holds four
+`{u32 colour, u8 width, u16 colour-ext}` side slots at `+0x13`/`+0x19`/`+0x1F`/`+0x25`
+(widths at `+0x14`/`+0x1A`/`+0x20`/`+0x26`), and in both shipped instances every colour
+word is either `0` or the unset-colour sentinel `0xC0E4…` that VA `0x0040402e` writes
+(chapter 06 §6.3) — the checklist cells carry no side colour. `[OBSERVED: the four
+colour pairs are live arguments of the stroke path, not merely stored words]`
+
+What remains opaque is the head of the element — the leading `u16`
+(`0x40`/`0x50`/`0x60`/`0x70` across elements 1–5, `0xFFFF` in the prologue, `0` in an
+empty element), the `u32@+0x04` / `u16@+0x08` words, the `+0x0B…+0x12` run and the
+trailing `u16@+0x2B` (1…15 over the corpus) — and byte `+0x0A` beyond its one test: VA
+`0x004e279f` returns nonzero when some kind-addressed element has `+0x0A == 0`, and its
+callers (`0x004e2823`, `0x004e3209`) use the result as a table-shape predicate. No
+function in `MSPUB.EXE` 98 (5 360 functions), 97 (4 252), 95 (3 826) or `QS98.DLL`
+(2 104) reads any of those head/trailer words. They are therefore **proven opaque**:
+a reader must preserve the 45 bytes verbatim; only the four side slots have a consumer.
+`[OBSERVED for the boolean test and the scan scope]`
 
 ### `0x0041` is a page slot
 
