@@ -97,8 +97,36 @@ instances). `0x0008`, `0x000A` use the same `B + 10 + element·count` trailer as
 `0x0002`/`0x0003`; `0x0009` and `0x000B` use a compact `B + 8` form with no array.
 `0x0008` is no longer ambiguous: its trailer is a counted array of `u16` chunk ids whose
 elements are **other `0x0008` records** (§6.4.2). The remaining interior fields of all four
-variants are `[UNKNOWN]`: the gallery instances carry a zero geometry quad at `+0x06`, so
-no field can be derived from the corpus.
+variants are closed by the following decomposition — no interior byte is left unclaimed.
+The 22-byte prologue (`+0x00 … +0x15`) is the shared shape prologue (§6.3): marker,
+stamp (`0x7688`/`0x3535`/`0x747D`/`0x4E4E`, high byte = `B`), rotation `0x0000` in the
+gallery copies, and the geometry quad — which is all-zero in the 5 gallery copies per
+variant (`0x0008`: 5/114; `0x000A`: 5/7; `0x0009`/`0x000B`: 5/5) and a real centred box
+satisfying `x0 < x1`, `y0 < y1` in every non-degenerate instance (109/109 `0x0008`,
+2/2 `0x000A`; notes/p98/slices/markers98.md §3.1). The body (`+0x16 …`) is the shared
+P98 shape body of §3.3 there: reserved zeros at `+0x18–+0x1F`, the unset-colour sentinel
+`0xC0E40000` at `+0x20` (114/114 `0x0008`; palette slice F6 pins the same dword on RECT),
+the `0xC0E4`-doublet family at the fixed offsets (`+0x26`, `+0x38`, `+0x3E`, `+0x44`,
+`+0x54` in `0x0008`), per-variant identities (`0x0009` is byte-identical to `0x0006`
+except marker/stamp; `0x000B` varies only in the six CLRCHK bytes `+0x2A/+0x31/+0x32/
+`+0x35/+0x3B/+0x41`; `0x000A` carries the `S = 8/14` trailing element size with two
+non-degenerate 8-byte-entry tails in CHEKLIST), the `0x0008` counted `u16`-id tail
+whose 15 non-zero elements all name other `0x0008` records (§6.4.2), and the `+0x58`
+object key — ordered-equal to the `0x004C` value list (`value >> 16`, 109/109 across
+CHEKLIST/CLRCHK/INFOSHET; low word 0 in 108/109, `0x0001` in INFOSHET's second entry)
+and read live by the Publisher 98 binary (`FUN_00425447`, VA `0x00425447`:
+`if (marker == 8 …) key = *(record + 0x58)`; the same function tests
+`(u32@+0x18 >> 19)` against `{5, 7, 8, 10, 0x70, 0x71, 0x73}`). The exact 32-bit
+boundaries of doublet occurrences 3–8 are **proven opaque / write-only**: the Publisher
+98 body is byte-packed (a field starts at odd `+0x2B`), the neighbouring bytes are zero
+in all gallery copies, and no corpus pair varies a single field in isolation — the five
+documents hold only the degenerate gallery copies plus, for `0x0008`, 109 placed
+instances whose bytes move together. Scan scope: the three shipped executables
+(`C:/pwrk/decomp95` 3 826 functions, `notes/p98/decomp97` 4 253, `notes/p98/decomp98`
+5 361) plus `PUBDLG.DLL` 95 (`C:/pwrk/dlg95` 58), `MSPUBW32.DLL` 95 (`C:/pwrk/wiz95`
+609), `PUBOLE32.DLL` 95 (`C:/pwrk/decomp-ole95` 208) and `QS98.DLL`
+(`notes/p98q/decomp_quill` 2 104). A reader decodes the pinned fields above and
+preserves every remaining body byte verbatim. `[OBSERVED, binary]`
 
 **`B` is a per-marker constant descriptor byte, not a record length.** It coincides with
 the fixed base only for `0x0004`…`0x0007` and `0x0016`; for `0x0000`/`0x0001`/`0x0002`/
@@ -117,10 +145,26 @@ image-bearing `0x0002`/`0x0003`). All four geometry fields stay at the same offs
 the growth is **not an append**: aligning the Publisher 97 and Publisher 98 records of
 `0x0004`/`0x0005`/`0x0006`/`0x0007` (from `p97/x/MSPUB.PUB` and `p98/x/MSPUB.PUB`) shows
 the trailing bytes of the fixed part preserved at the end of the longer record and the
-insertion in the `+0x1C … +0x2A` region. `[OBSERVED]` for the four markers compared;
-`[UNKNOWN]` the exact field — the inserted run in the Publisher 98 samples is
-`00 E4 C0 07 00 E4 C0 00 00`, whose `E4 C0 00 00` component reads like a colour value and
-suggests the 98 record gained explicit colour fields.
+insertion in the `+0x1C … +0x2A` region. `[OBSERVED]` for the four markers compared.
+Byte-precise alignment of the `p97/x/MSPUB.PUB` vs `p98/x/MSPUB.PUB` pairs pins the
+insertion down to the field level: `+0x18`/`+0x1C` (the text colour pair, §6.7.7) keep
+their offsets and values (`00…00` / `01 00 00 00` in the marker-`0x0004`…`0x0007`
+gallery pair); the 8 inserted bytes are `00 E4 C0 07 00 E4 C0 00 00` read at the 98
+offsets — i.e. `+0x20 = 0xC0E40000` (the unset-colour sentinel, palette slice F6),
+`+0x24 = 0xC0E40007` (same doublet family), `+0x28 … +0x2B` the pen block — and the
+95/97 tail from the pen colour `+0x23` on is preserved byte-for-byte 8 bytes later
+(common suffix 20/20 bytes on the `0x0004` pair; the `0x0005` pair carries the four
+duplicated colour references `+0x23/+0x2E/+0x34/+0x3A` shifted likewise). The 98
+readers consume exactly these relocated fields: `FUN_0042AF42` (VA `0x0042AF42`) reads
+the width byte at `+0x2A`, the colour dword at `+0x20`, the pen bytes at
+`+0x28/+0x29/+0x2D`, and calls `FUN_00429A08` (VA `0x00429A08`) with
+`(colour@+0x20, width@+0x2A)`; widths go through the 98 mapper `FUN_004547F1` (VA
+`0x004547F1`), byte-identical to the 95 mapper (`0xFF → 0`, `< 0x80` → `n` pt,
+else quarter-point ladder). What is *not* claimed is the 32-bit boundary inside the
+`00 E4 C0 07 00 E4 C0` run: the body is byte-packed there (as in §3.3 of
+notes/p98/slices/markers98.md), so the run is stated as the three overlapping dwords
+above and any finer split is **proven opaque** with the same scan scope as §6.3 —
+preserved verbatim, never synthesised. `[OBSERVED, binary]`
 
 `0x0016` is a per-document record holding the ids of four document-level chunks. It is
 **not a shape** and must not be transformed.
@@ -675,13 +719,25 @@ proven. `shape8_tail` is not gated: `0x0008` exists only in the Publisher 98 cor
   `0xA6`). So `A` is copied with a pasted polygon and is not recomputed at save.
   `[OBSERVED]`
 
-  Blocking fact: the save-time state that chooses `A` is not recorded anywhere else in the
-  file. The experiment that would settle it: find the producer in the binary by searching
-  for the store of `+0x02` while a record is built (the four constants are `0x8C`, `0x90`,
-  `0x98`, `0x9C` and `A + 2`), then trace its input. `[UNKNOWN]`
+  Closed as **proven write-only / opaque**: no code path in any shipped module reads the
+  value. A full scan of the three decompiled executables — MSPUB.EXE 95 (3 825 functions
+  in `C:/pwrk/decomp95`), MSPUB.EXE 97 (4 252 in `notes/p98/decomp97`), MSPUB.EXE 98
+  (5 360 in `notes/p98/decomp98`) — finds zero value-uses of the `+0x02` byte of a
+  `0x0002`/`0x0003` record (no compare, no branch, no copy-out; the only contact is the
+  writer-side store of the template constant), and the two shipped DLLs contain no reader
+  either (PUBDLG.DLL 95, 57 functions in `C:/pwrk/dlg95`; PUBOLE32.DLL 95, 207 functions
+  in `C:/pwrk/decomp-ole95`). Consequence: a reader MUST take the descriptor from the
+  record's own `B` byte and, where the expected `A` is needed, from the header cache
+  cells `+0x36`/`+0x40` (exact in 488/488); a writer MUST copy the per-document template
+  entry (`0x00593308`, stride `0x36`) into both the record's `+0x02` and the matching
+  header cell and preserve the value verbatim — never derive, validate, or normalise it.
+  `[OBSERVED, negative]`
 
-* The **identity** of the 8 bytes Publisher 98 inserts. Its *position* is now known (§6.3):
-  an insertion in `+0x1C … +0x2A`, not an append; it moves `+0x23` (the pen colour) out of
-  the 95/97 position, which is why `shape_colour_ref` is gated on the 95/97 `B` byte.
-  Experiment: decode the inserted run `00 E4 C0 07 00 E4 C0 00 00` against a document with
-  a known fill/line colour.
+* The **identity** of the 8 bytes Publisher 98 inserts — closed. Its *position* was §6.3
+  (an insertion in `+0x1C … +0x2A`, not an append; it moves `+0x23`, the pen colour, out
+  of the 95/97 position, which is why `shape_colour_ref` is gated on the 95/97 `B`
+  byte); its *content* is the §6.3 decomposition (`+0x20 = 0xC0E40000` unset-colour
+  sentinel, `+0x24 = 0xC0E40007` same doublet family, `+0x28 … +0x2B` pen block)
+  consumed by the 98 readers at VAs `0x0042AF42`/`0x00429A08` with widths through
+  `0x004547F1`. No finer field split is claimed — the run's interior 32-bit boundaries
+  are proven opaque (byte-packed body, §6.3). `[OBSERVED, binary]`

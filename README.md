@@ -69,9 +69,16 @@ Publisher 97 CD 250, Publisher 97 disk set 108, Publisher 98 CD 5 — the three
 ## Remaining unknowns
 
 Every chapter ends with an **Open** table, and every claim carries `[OBSERVED]`,
-`[INFERENCE]` or `[UNKNOWN]`. The count of unresolved field-level markers is tracked by
-`grep -o '\[UNKNOWN\]' spec/**/*.md | wc -l`; it is being driven to zero by tracing each
-field's accessor in the shipped binaries (see the method below).
+`[INFERENCE]` or `[UNKNOWN]`. As of the last pass the unresolved-marker count is **zero**:
+`grep -o '\[UNKNOWN\]' spec/**/*.md | wc -l` returns 0.
+
+Two kinds of statement did the closing. Either a field got a proven meaning — a corpus
+identity over N/N instances, or the virtual address of the code that reads or writes it — or
+it is recorded as **proven opaque**: written but never read by any shipped binary, with the
+scan scope stated (executables, DLLs and function counts), which tells a reader to preserve
+those bytes verbatim rather than interpret them. Where a value is a pass-through of a Windows
+structure (`DEVMODE`, `DEVNAMES`, `LOGFONT`, `OLESTREAM`), the member is named by its offset
+instead of being guessed.
 
 The closure rule is: a field is resolved either by a corpus identity (N/N instances) or by
 the code that reads or writes it, cited as a virtual address with the operation described.

@@ -14,7 +14,7 @@ nested groups) plus its own geometry. 2 935 instances across the 493-document co
 +0x0A  i32 top
 +0x0E  i32 right
 +0x12  i32 bottom
-+0x16  u16 flags         values: 0x0080 ×2163, 0x0000 ×464, 0x0084 ×265, 0x0004 ×43 [UNKNOWN]
++0x16  u16 flags         bit 7: uniform-rotation latch (§7.7); bit 2: bookkeeping copy of transient bit 1 (§7.7); values: 0x0080 ×2155, 0x0000 ×464, 0x0084 ×264, 0x0004 ×43 (95/97; 9/9 P98 groups carry 0x0000)
 +0x18  u16 count         child count
 +0x1A  u16 count2        equal to count in every conforming record
 +0x1C  u16 elementSize   always 2 (the child ids are u16)
@@ -116,11 +116,40 @@ share the idiom but not the layout; do not parameterise one parser for both with
 The size rule was re-measured independently here: 2 935/2 935 groups satisfy it, and the
 `+8`-shifted Publisher 98 form holds for 9/9 groups in the five 98 publications.
 
-## 7.7 Open
+## 7.7 Flags and group-level attributes (closed)
 
-* `+0x16` flags word: four values observed (`0x0080`, `0x0000`, `0x0084`, `0x0004`),
-  semantics `[UNKNOWN]`.
+* `+0x16` flags word — closed. Only bits 2 and 7 are ever set in the 95/97 corpus
+  (`0x0080` ×2155, `0x0000` ×464, `0x0084` ×264, `0x0004` ×43 = 2 926/2 926; the 9/9
+  Publisher 98 groups carry `0x0000` at the shifted offset `+0x1E`): bit 7 is the
+  uniform-rotation latch, bit 2 the transient-bit-1 bookkeeping copy.
+  Writer: the Publisher 95 group writer `FUN_004E8CA7` (VA `0x004E8CA7`) walks the
+  group's children, skipping marker `0x0004` (lines never rotate — 0/2 774 corpus lines
+  carry a non-zero rotation), latches the first rotatable child's rotation and clears a
+  uniformity flag on any mismatch, and clears a nesting flag on any nested `0x000F`
+  child lacking bit 7; it sets `0x0080` iff both flags survive, else clears it — and it
+  unconditionally overwrites the group's own `+0x04` rotation with the latched child
+  rotation (0 when no rotatable child exists or they disagree). Corpus consequence is
+  one-directional and exact: bit 7 set ⇒ children uniform and every nested group
+  carries bit 7 (2 419/2 419, 0 violations; nesting part 518/518), while 76 groups in
+  12 template/gallery files (`PLAIN.PUB` 21, `CLASSIC.PUB` 18, `JAZZY.PUB` 11, …) are
+  uniform yet clear — the latch records that the writer ran and found uniformity, not a
+  standing invariant a reader may assume. `0x0084` is the combination (both bits set),
+  `0x0004` bit 2 alone. Bit 2 is the shape bit-1-sync copy (chapter 06 §6.7.6: writer
+  `0x00416C82`, 98 twins `0x00492A72`/`0x00502369`); no located code path reads it back.
+  A reader MUST preserve both bits verbatim and MUST NOT recompute the latch (the 76
+  clear-but-uniform groups prove recomputation changes the document).
+  `[OBSERVED, binary]`
 * Whether the writer ever emits `count != count2` (capacity hint vs used count). Publishing
   uses the equality; a re-implementer should write both equal.
-* Group-level fill/line attributes are not present in this record — `[UNKNOWN]` whether
-  they exist elsewhere.
+* Group-level fill/line attributes — closed as **absent by construction**. The 34-byte
+  fixed header leaves no room: the shape colour offsets (`+0x18`/`+0x1C` pair,
+  `+0x20` selector, `+0x23` pen) fall inside the group's rotation/bbox/flags/count
+  words, and the record is exactly `0x22 + 2·count` (2 926/2 926) with the id array
+  starting at `+0x22`. Nor does any other record carry them: a corpus census over all
+  2 935 groups (2 926 in 95/97, 9 in 98) shows every child id resolves to a shape
+  (`0x0000`–`0x0008`, 98 also `0x0005`/`0x0008`) or a nested group — zero children of
+  any other type, zero dangling ids — so a group's visible fill/line is exactly the
+  member shapes' own attributes (chapter 06 §6.7); there is no group-level slot to
+  find. Scan scope as chapter 06 §6.7.6 (3 EXEs + `PUBDLG`/`PUBOLE32`/`MSPUBW32` 95 +
+  `QS98`). A reader draws each member with its own attributes and preserves the
+  header bytes verbatim. `[OBSERVED, negative]`
