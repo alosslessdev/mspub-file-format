@@ -66,6 +66,19 @@ Publisher 97 CD 250, Publisher 97 disk set 108, Publisher 98 CD 5 — the three
 | named-field coverage of payload bytes (P95) | 60.1 % (39.9 % preserved verbatim) |
 | chunk markers with a layout entry | 54 of 54 |
 
+## Remaining unknowns
+
+Every chapter ends with an **Open** table. Each row states the blocking fact and the single
+experiment that would close it; nothing is marked resolved without a corpus identity or a
+binary reference. As of the last pass there are 29 such rows, concentrated in the
+Publisher 98-only records (chapter 11), the DOCUMENT print fields (chapter 04) and four
+single questions in chapters 03, 05, 06, 13 and 17.
+
+The remaining rows are the ones where neither the corpus nor the shipped binaries answer
+yet — several require a document produced by Publisher itself (change one property, save,
+diff), because the field is written but never read by any code path that survives in the
+shipped binaries.
+
 ## Method
 
 Three independent evidence classes, cross-checked:
