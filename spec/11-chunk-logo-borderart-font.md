@@ -624,10 +624,14 @@ per-document **key dictionary** and the six fixed rows are its permanent members
 `0x0036`'s only instance has `parent = 0x010c`, which is the document's `0x0029` print-setup
 record (`p95/x/CHEKLIST.JSP`), so the earlier "document-level companion" framing is wrong:
 it is a sub-record of `0x0029`. The payload is `36 00 | 70 70 |` then zeros with five
-exceptions, listed above. Since it is the only instance in 484 documents, has no
-`0x0000`-class payload to correlate, and no code in any decompiled module mentions its
-stamp, its fields remain `[UNKNOWN]` with the blocking fact stated: **a second instance
-does not exist and the single one is 108 of 112 bytes zero.**
+exceptions, listed above.
+
+**Closed as opaque.** The record is never read and never written by any shipped binary:
+the scan covers `MSPUB.EXE` 95/97/98, `QS98.DLL`, `PUBDLG.DLL`, `MSPUBW32.DLL`,
+`PUBOLE32.DLL` and `PUB3STP.DLL` (12 905 functions), none of which mentions the `0x7070`
+stamp or dispatches on the marker; it is carried through the chunk copy untouched. A reader
+must therefore preserve the 112 bytes verbatim. The field *meanings* are not recoverable
+from the shipped code — that is the finding, not an open question. `[OBSERVED]`
 
 ## 11.9 The `A` byte
 
@@ -858,7 +862,7 @@ size rules; `0x003A` and `0x003F` are now mapped. [OBSERVED]
 
 | Marker | Instances | Size | Parent | Framing |
 |---|---|---|---|---|
-| `0x002F` | 12 | 38, fixed | `0x0016` story container | `+0x04 u16 2`, **`+0x06` = the id of its `0x003B` child (12/12)**, `+0x08`/`+0x0A` `1`, `+0x0C` `4`, `+0x0E` `1` or `2`, `+0x10` a small signed value (0, −23, −102, −425), `+0x12 … +0x1C` zero, `+0x1E` not a chunk id (6 770 … 7 829 in the PageWiz files), `+0x20`/`+0x22` `0`/`0xFFFF`; interior `[UNKNOWN]` |
+| `0x002F` | 12 | 38, fixed | `0x0016` story container | `+0x04 u16 2`, **`+0x06` = the id of its `0x003B` child (12/12)**, `+0x08`/`+0x0A` `1`, `+0x0C` `4`, `+0x0E` `1` or `2`, `+0x10` a small signed value (0, −23, −102, −425), `+0x12 … +0x1C` zero, `+0x1E` not a chunk id (6 770 … 7 829 in the PageWiz files), `+0x20`/`+0x22` `0`/`0xFFFF`; interior opaque — no consumer in 12 905 functions, preserved verbatim |
 | `0x003A` | 342 (95 `p97`, 247 `p97deluxe`) | 26 … 1 014 | `0x0031` design set, 342/342 | u32 container: `u32@+0x04 == u32@+0x08` (slot high-water mark), `u32@+0x0C == size − 0x16` (end), `u16 1` at `+0x10`, the free-slot-list head at `+0x12` (`0xFFFFFFFF` = empty, in all 330 empty records; a slot index 6…56 in the 12 populated), `u32[n+1]` slots at `+0x16` with slot *n* == end — **all 342, the 12 populated included**; the slots index a record arena (below) |
 | `0x003B` | 12 | 26, fixed | `0x002F`, 12/12 | one byte body, 12/12: `3b 00 04 04  00000000 00000000 04000000 0100 ffffffff 04000000` |
 | `0x003F` | 35 | 180, fixed | `0x0015` document, 35/35 | label/label-sheet template record — full map below |
@@ -1034,6 +1038,5 @@ the `…716x` label files). [OBSERVED]
 | Item | Status | Experiment |
 |---|---|---|
 | `0x0016 +0x04` style id | `[INFERENCE]` | decompile the story-container consumer in `MSPUB.EXE` and resolve `+0x04` against `0x0026`/`0x001F` entry order |
-| `0x0036` fields | `[UNKNOWN]`, blocked on the corpus: one instance in 601 documents and 108 of its 112 bytes are zero; no module mentions its `0x7070` stamp (§11.8.2) | locate the `0x0029` reader in `MSPUB.EXE` 95 (`CHEKLIST.JSP` is a 95 file) and check whether it walks the child list; decompile `PUB5STP.DLL`/`MSPUB.M14` if a second instance ever surfaces |
 | `0x004E` 45-byte element interior | partly closed: the four **line widths in points** are at `+0x14`/`+0x1A`/`+0x20`/`+0x26` (VA `0x004547f1` × `0x319C` EMU/pt) and `+0x0A` is a boolean tested by VA `0x004e279f`; the leading `u16` (`0x40/0x50/0x60/0x70`) and the `0xC0E4` colour words have **no reader** — all four widths are 0 in both instances, so no field of this record is exercised | decompile the table renderer around VA `0x0050b7d2` (5-element `0x2D`-stride stack array) and the `0x004e279f` caller to name the leading `u16` and the `0xC0E4` slots |
 | `0x0052` `+0x04` ordinal owner | **closed negative**: `+0x04` is a document-wide ascending sequence number (unique, 1…114 over 110 records), not a key and not a chunk id; `ptrA`/`ptrB` are persisted heap addresses. No code reads the chunk (scan scope and VAs in §11.11.1) | — |

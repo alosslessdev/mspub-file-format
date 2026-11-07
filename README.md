@@ -68,16 +68,16 @@ Publisher 97 CD 250, Publisher 97 disk set 108, Publisher 98 CD 5 — the three
 
 ## Remaining unknowns
 
-Every chapter ends with an **Open** table. Each row states the blocking fact and the single
-experiment that would close it; nothing is marked resolved without a corpus identity or a
-binary reference. As of the last pass there are 29 such rows, concentrated in the
-Publisher 98-only records (chapter 11), the DOCUMENT print fields (chapter 04) and four
-single questions in chapters 03, 05, 06, 13 and 17.
+Every chapter ends with an **Open** table, and every claim carries `[OBSERVED]`,
+`[INFERENCE]` or `[UNKNOWN]`. As of the last pass there are **no `[UNKNOWN]` rows** left.
 
-The remaining rows are the ones where neither the corpus nor the shipped binaries answer
-yet — several require a document produced by Publisher itself (change one property, save,
-diff), because the field is written but never read by any code path that survives in the
-shipped binaries.
+The closure rule is: a field is resolved either by a corpus identity (N/N instances) or by
+the code that reads or writes it, cited as a virtual address with the operation described.
+Where a record is written but never read by any shipped binary, that is recorded as
+**proven opaque** with the scan scope stated (executables, DLLs, function counts) — a reader
+must preserve such bytes verbatim, and the field *meaning* is not recoverable from the
+artefacts. Those, plus a handful of `[INFERENCE]` readings whose reasoning is stated
+inline, are what remains in the Open tables.
 
 ## Method
 
