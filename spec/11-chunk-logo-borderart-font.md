@@ -33,8 +33,19 @@ the record is absent. Every non-zero value resolves to a chunk of the stated typ
 | `+0x5E` | `0x0037` | colour list, 6-byte elements | 16/130 |
 | `+0x60` | `0x0038` | colour list, 10-byte elements | 15/130 |
 | `+0x68` | `0x0039` | 48-byte document record | 130/130 |
+| `+0x86` | `0x003F` | label-sheet template | 35/130, and `0` in the other 181 documents whose DOCUMENT is ≥ 0x88 bytes |
 
 The three `0x0031` slots always name distinct chunks.
+
+`+0x86` exists only in the 154-byte DOCUMENT form (the label files `p97/x/B71xx.PUB`,
+`p97/x/D71xx.PUB`, `p97deluxe/x/PageWiz/B51xx.PUB`, `…/D51xx.PUB`, `…/equiplbl.pub`,
+`…/lamidtag.pub`, …). It holds the id of the document's one `0x003F` in 35/35, and `0`
+in every other DOCUMENT of that size (181/181) and in every DOCUMENT larger than 0x88
+bytes (326/326 measured; the one 138-byte DOCUMENT, `p95/x/PAGEWIZ/CATALOG.PUB`, has a
+page-id list at that offset and no `0x003F` at all, so the slot belongs to the 154-byte
+form). The reader is `MSPUB.EXE` 98 VA `0x00473dcb` / `0x0049f782`, both of which do
+`*(ushort *)(DAT_00613920 + 0x86)` and resolve the id through the chunk table —
+`DAT_00613920` being the in-memory DOCUMENT record. [OBSERVED]
 
 ### 11.1.1 Slots that change meaning between generations
 

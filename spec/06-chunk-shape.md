@@ -245,13 +245,19 @@ Two widely repeated libmspub offsets do **not** hold for this family:
 The positive result — which offsets *do* carry the pen and the frame descriptor — is in
 §6.7.
 
-## 6.6 Shared enums
+## 6.6 Shared fields
 
-`+0x20` takes the same small value set {0, 1, 2} under every marker, so it is **not** a type
-discriminator. At MSPUB.EXE 95 VA `0x004177C3` it is tested `!= 0` and gates the text
-drawing of the record, and VA `0x0040DFBF` tests it against `0x80`/`0xAB` (values outside the
-corpus); it is the **text-present byte**. `[OBSERVED]` for the value set (21 925 records of
-markers `0x0000`–`0x0007`); `[INFERENCE]` for the name.
+`+0x20` is a one-byte **selector**, not a type discriminator and not a boolean. Over the
+22 354 records of markers `0x0000`–`0x0007` it takes `0` (10 361), `1` (3 854) and `2`
+(7 180) — 21 395 records — the range `0x80`–`0xAB` in 626, and one of 333 other values in
+the remainder. `0x00417684` (`FUN_00417684`) consumes it as an index into the colour-object
+cache: `1` selects the object built from the colour at `+0x1C`, `2` the one built from
+`+0x18`, any other value is used as the cache index itself, and the range `0x80`–`0xAB`
+makes the function return 0 ("no object"). `[OBSERVED, binary]` The name is therefore
+*colour/object selector*; the previous revision's "text-present byte" is refuted — the
+`!= 0` test at `0x004177C3` is a "this record has an explicit colour object" test, and
+`0x0040DFBF`'s `0x80`/`0xAB` window is the no-object range, not a value outside the corpus
+(626 records carry a value in it). §6.7.7 gives the block.
 
 `+0x22` is *not* a shared enum: it is the line-width code (§6.7.1). The earlier revision of
 this chapter grouped it with `+0x20` because both take small values, but the decoder below
@@ -266,14 +272,17 @@ reads the same offsets at the corresponding VAs (e.g. the draw dispatcher is
 
 | Off | Width | Field | Read at (95 VA) |
 |---|---|---|---|
-| `+0x16` | u16 | text/group flags (bits 0, 3, 4) | `0x004177C3` |
-| `+0x20` | u8 | text-present byte | `0x004177C3`, `0x0040DFBF` |
+| `+0x16` | u16 | **flag word** — bit 0 shadow, bits 3/4 frame pair (§6.7.5, §6.7.6) | `0x004177C3`, `0x004051D9`, `0x004675F8`, `0x004AFE67` |
+| `+0x18` | u32 | **colour reference A** (`0` = none) | `0x0041762A`, `0x004271FA` |
+| `+0x1C` | u32 | **colour reference B** (`0`/`1` = none) | `0x0041762A`, `0x004271FA` |
+| `+0x20` | u8 | colour/object selector (§6.6) | `0x0041762A`, `0x00417684`, `0x004177C3` |
 | `+0x21` | u8 | pen style byte — `0x00` in 21 842 / 21 925, else `0x1E`/`0x1F` | `0x0042253E` |
 | `+0x22` | u8 | line-width code | `0x0042253E`, `0x004B0C67`, `0x004675F8` |
 | `+0x23` | u32 | **line colour reference** | `0x0042253E`, `0x004AFE67` |
-| `+0x29` | i16 | frame border style (`0` = none) | `0x00418211`, `0x004675F8` |
+| `+0x29` | i16 | frame border style (`0` = none); `0x0004`: first inset | `0x00418211`, `0x004675F8`, `0x00405740` |
 | `+0x2B` | u16 | frame flags (bit 2 selects the inset axis) | `0x00418211`, `0x004675F8` |
-| `+0x2D` | 8 | frame inset pair (`i32`, `i32`) | `0x00418211`, `0x004675F8` |
+| `+0x2D` | i32 | frame inset pair (`i32`, `i32`); `0x0004`: insets 2 and 3 | `0x00418211`, `0x004675F8`, `0x00405740` |
+| `+0x35` | i32 | fourth inset — read only for `0x0004` (§6.7.8) | `0x00405740` |
 | `+0x2E` | u32 | second colour reference (0x0005 only) | — (see §6.7.4) |
 | `+0x34` | u32 | copy of `+0x23` (0x0005 only) | — (see §6.7.4) |
 | `+0x39` | u16 | dash/arrow style, bit 1 = start/end swap | `0x0042253E`, `0x004B0C67` |
@@ -288,8 +297,8 @@ The six bytes from `+0x21` are a pen descriptor `{u16 style, u32 colour}`: `+0x2
 the style byte (`0x00` in 21 842 of 21 925 records, `0x1E` in 80, `0x1F` in 3), `+0x22` is
 the width code, and `+0x23` is the colour reference. The line
 drawer at VA `0x0042253E` splits the descriptor as `dword@+0x21` + `word@+0x25` (the same
-six bytes) when it hands it to the pen setup, and recolours the line for the text-link path
-at VA `0x004AFE67` by overwriting `+0x23` and restoring the six bytes afterwards.
+six bytes) when it hands it to the pen setup, and, for the shadow copy (§6.7.5), recolours
+the line at VA `0x004AFE67` by overwriting `+0x23` and restoring the six bytes afterwards.
 `[OBSERVED]`
 
 **Width code (`+0x22`).** VA `0x00405875` maps it to EMU; `0x319C` = 12 700 EMU = 1 pt and
@@ -352,7 +361,9 @@ The twelve bytes `+0x29` … `+0x34` are read as `{i16 style@+0x29, u16 flags@+0
 i32 a@+0x2D, i32 b@+0x31}`. VA `0x004675F8` branches on `style == 0` (no border: it uses
 `a` as an inset and draws a plain rectangle) and on bit 2 of `flags` (which axis the inset
 applies to); VA `0x00418211` copies the eight bytes `+0x2D` … `+0x34` as two `i32` and
-passes them to the polygon builder as a point. In `0x0005` this style word is
+passes them to the polygon builder as a point. For marker `0x0004` the run is **sixteen**
+bytes — `0x00405740` reads a fourth `i32` at `+0x35` and treats all four as insets
+(§6.7.8). In `0x0005` this style word is
 `0xFFFE` (−2, "no border") in 4 347 / 4 480 records, which is the `0xFF 0xFE` sentinel
 noted in earlier revisions of this chapter. `[OBSERVED, binary]`
 
@@ -369,11 +380,186 @@ drawn without a border (`+0x23 = 0`, `+0x2E` set) or with a different border, so
 are read as **line colour `+0x23`** and **fill colour `+0x2E`**. `[INFERENCE]` The
 duplicates at `+0x34`/`+0x3A` are not read by any located 95/97 code path.
 
-### 6.7.5 What is *not* in the record
+### 6.7.5 The shadow
 
-The remaining `[UNKNOWN]` is the **shadow**: no offset of a shape record is read by a shadow
-path in either binary, and no shadow-specific value appears in the corpus (§6.9). A reader
-must preserve every byte not listed above. `[OBSERVED]`
+The shadow is **not a stored field**. It is one flag bit plus two compile-time constants.
+
+| Element | Value | Evidence |
+|---|---|---|
+| presence | bit 0 of `+0x16` | written at `0x004D02F9` (attribute 0), read at `0x00411776`, `0x004675F8`, `0x004AFE67`, `0x00405740` |
+| offset | `+0xDF3E` EMU on **both** axes = 57 150 EMU = 1/16 in = 4.5 pt, down-right | the literal appears in exactly these shadow sites: `0x00405740`, `0x00411776`, `0x004675F8`, `0x004AFE67` |
+| colour | 50 % tint toward white of the pen colour `dword@+0x23` | `0x004AFE67` and `0x004675F8`, both via `FUN_00508B3F(c, 1, 50)` |
+
+`[OBSERVED, binary]` The four operations, in prose:
+
+* **Bounds.** `0x00405740` builds the record's rectangle and, when its third argument is
+  non-zero and bit 0 of `+0x16` is set, inflates the rectangle by `0xDF3E` on all four
+  sides — the selection/redraw bounds include the shadow.
+* **Damage.** `0x00411776` adds each object's rectangle to the repaint region; when bit 0
+  is set it calls `FUN_00530BDB(region, count, 0xDF3E, 0xDF3E)`, which converts the two
+  EMU values to device units and translates the rectangle and every point of the polygon by
+  them, and adds a **second** region — the shadow's.
+* **Frame.** `0x004675F8` builds the frame's point list twice: the plain list, and a copy
+  offset by `(0xDF3E, 0xDF3E)`. The offset copy is filled with the brush built from
+  `FUN_00508B3F(decode(dword@+0x23), 1, 50)`.
+* **Shape.** `0x004AFE67` is the draw-time shadow of an object: it decodes `dword@+0x23`,
+  tints it 50 % toward white, selects that brush, shifts the record's rectangle by
+  `(0xDF3E, 0xDF3E)` and draws the record's polygon at the shifted rectangle. For marker
+  `0x0004` it instead overwrites `dword@+0x21`/`word@+0x25` with the tinted colour, draws
+  the line, and restores the six pen bytes.
+
+The **setter** is the format-apply loop `0x004D02F9`, which walks a format-attribute table
+by id: for attribute 0 it clears bit 0 when the attribute entry is absent or its style field
+`(u16@entry+2 >> 8) & 0x1C` is not 4, and sets bit 0 otherwise; if bit 0 ends up set while
+`+0x20` is still 0 it forces `+0x20 = 1` (an object with a shadow needs an explicit colour
+object). That forcing is why the corpus identity *bit 0 ⇒ `+0x20 ≠ 0`* holds in 44/44
+records — it is an invariant of the writer, not a coincidence.
+
+`[OBSERVED]` — 44 of 22 354 records of markers `0x0000`–`0x0007` carry bit 0 (32 alone, 6
+with `0x0005`, 4 with `0x0801`, 2 with `0x0805`); all 44 have `+0x20 ≠ 0`.
+
+**No shadow value is stored, and no unassigned byte is consumed.** The complete byte set the
+shadow path touches is `+0x06`…`+0x12` (rectangle), `+0x16` bit 0 (flag), `+0x20` (tested by
+`0x004675F8` to choose the frame path), `+0x21`…`+0x26` (pen), `+0x29`…`+0x38` (frame
+descriptor / line insets) and `+0x39` (dash/arrow) — every one of
+which is assigned in this section. The colour is *derived*, not stored, so there is no
+shadow colour slot to find: a reader that wants the shadow colour must compute
+`tint50(decode_colorref(u32@+0x23))` and offset the rectangle by `(57 150, 57 150)` EMU.
+`[OBSERVED, binary]`
+
+The Publisher 97 binary carries the same mechanism at the corresponding VAs: `0x004CDC65`
+(tint + offset copy, `FUN_005283CC(c, 1, 50)`), `0x0042ACAD` (frame shadow polygon),
+`0x004B2885`/`0x004B28FD` (shadow damage region), `0x0046E413` (bounds inflation by
+`0xDF3E`). `[OBSERVED, binary]`
+
+### 6.7.6 The `+0x16` flag word
+
+`+0x16` is a **bit field**, not a 16-member enum. The 17 values the corpus contains are the
+combinations of eight independent bits. The bits are not all of one kind: three of them
+(1, 5, 6) are runtime-only and never reach the file, four (8–11) appear in the file but have
+no writer in the Publisher 95 binary, and the rest are written by the 95 format code.
+
+| Bit | Mask | Records | Written at | Read at | Meaning |
+|---|---|---|---|---|---|
+| 0 | `0x0001` | 44 | `0x004D02F9` | `0x00411776`, `0x004675F8`, `0x004AFE67`, `0x00405740` | **shadow present** (§6.7.5) |
+| 1 | `0x0002` | 0 | `0x004ADAD0`, `0x00438D7C`, `0x0044B740` | `0x00405C74`, `0x004280ED`, `0x004238CD`, `0x00439041`, `0x0042FAC5` | transient in-memory state |
+| 2 | `0x0004` | 1 570 | `0x00416C82` | — none | bookkeeping copied from bit 1 |
+| 3 | `0x0008` | 88 | `0x004D02F9` | `0x004177C3`, `0x004051D9`, `0x0040739B`, `0x00416AFB` | frame pair, with bit 4 |
+| 4 | `0x0010` | 91 | `0x004D02F9` | same four | frame pair, with bit 3 |
+| 5 | `0x0020` | 0 | — | `0x00420CAE`, `0x0046729D`, `0x004F269A` | outline source: smoothed polygon |
+| 6 | `0x0040` | 0 | — | `0x004F269A`, `0x004F2554`, `0x004675F8` | outline is a **closed** point loop |
+| 7 | `0x0080` | 0 | — | — | unused |
+| 8 | `0x0100` | 394 | — | — none | only ever set together with bit 9 (394/394) |
+| 9 | `0x0200` | 486 | — | `0x005A2901`, `0x00571C62` (98) | group-child bit (§ below) |
+| 10 | `0x0400` | 2 | — | `0x0044041F` (97) | pen colour taken from `+0x23` |
+| 11 | `0x0800` | 289 | `0x004217A7`, `0x0042453B` | `0x004217A7`, `0x0042453B`, `0x0042D6A8` (97) | group-child bit (§ below) |
+| 12–15 | — | 0 | — | `0x004F5E26` (`0x2000`, 98) | never set in the corpus |
+
+`[OBSERVED]` — counts over 22 354 records of markers `0x0000`–`0x0007` in the four corpora.
+"Written at" names the VA that stores the bit into a **chunk record** (not into the
+0x60-byte property struct, which carries its own, unrelated `+0x16` word).
+
+**Bit 1 is not persisted.** It is 0 in all 22 354 records. It is a transient in-memory flag:
+`0x004ADAD0` sets it (`| 2`) around a call to `0x0044739B` and then restores the previous
+value, `0x00405C74` is a one-line getter for it, the click handler `0x004280ED` tests it
+before selecting, the walkers `0x004238CD`/`0x00439041`/`0x0042FAC5` act only on records
+that carry it, and the paste path `0x00438D7C` clears it (`& 0xFFFD`) on the copy. It exists
+only between load and save.
+
+**Bit 2 has no reader.** A full scan of the three decompiled trees — MSPUB.EXE 95 (3 825
+functions), MSPUB.EXE 97 (4 252), MSPUB.EXE 98 (5 360) — finds no read of mask `0x0004`
+(byte or word form, including the `& 6`/`& 0xC`/`& 0x1C` combinations) on a chunk record.
+The only writer is `0x00416C82`, which walks the children of the current selection and
+performs `flags = flags ^ ((flags << 1) ^ flags) & 4`, i.e. **bit 2 := bit 1**, for each of
+them; it is called by the format/rotate commands (`0x00416CD7`, `0x004E4CD4`, `0x004A7C28`,
+`0x004C5650`). Bit 2 is therefore bookkeeping ("this record was touched by the last format
+command") that the writer serialises and no reader consumes. `[OBSERVED]` for the absence
+(closed negative, three binaries); `[INFERENCE]` for the name.
+
+**Bits 3 and 4 are a pair.** `0x004D02F9` case 1 writes both from the *same* boolean
+(`bit 3 := x; bit 4 := x`), which is why the corpus identity *bit 3 ⇒ bit 4* holds 88/88.
+They occur only on markers `0x0002`/`0x0003` (88 and 91 records; the 3 bit-4-only records
+are Publisher 95 marker-3 records written before the pair was synchronised). Every reader
+routes a marker-2/3 record to the marker-6 code path when the pair is set:
+`0x004177C3`/`0x004051D9`/`0x004AFE67` draw and hit-test it as a frame
+(`0x004675F8`), `0x0040739B` dispatches it to `0x004731EA`, and `0x00416AFB` maps it onto
+the marker-6 property page. `[OBSERVED]` for the writes, the reads and the corpus
+identities; `[INFERENCE]` for the reading "the record is a framed picture rather than a
+plain polygon".
+
+**Bits 5 and 6 are computed at draw time.** Bit 6 is the *closed loop* flag of the outline
+smoother: `0x004F269A` computes the point count as `n − (bit 6 ? 1 : 0)` and, when bit 6 is
+set, seeds the walk with point 0 as the predecessor of point 0; `0x004F2554` uses the same
+flag to decide whether the neighbour of the last point is the first. Bit 5 selects the
+outline source: `0x00420CAE` takes the record's counted tail (`u16@(B + chunk)`, §6.4) when
+bit 5 is clear and the smoothed outline when it is set. Neither bit is ever written to the
+file (0/22 354).
+
+**Bits 9 and 11 are group-child bits.** They are 100 % confined to records whose parent is
+a `0x000F` group: bit 9 in **486/486** records, bit 11 in **289/289**. They are the only
+bits of the word that the Publisher 97/98 binaries read on a chunk record:
+`0x004217A7` and `0x0042453B` clear bit 11 (`& 0xF7FF`) on the destination of a duplicate
+and re-set it (`+0x17 |= 8`) only when the re-link through `0x004B555B` fails; `0x0042D6A8`
+calls `FUN_004B5512` on the record when bit 11 is set; the 98 binary's `0x005A2901` returns
+1 early for a bit-9 record and `0x00571C62` saves the bit into a work structure. Bit 8 is
+never set without bit 9 (394/394) and occurs only in the Publisher 98 corpus on marker
+`0x0005` (the `0x0300` value). `[OBSERVED]` for the identities and the VAs. What the bits
+*select* is not established by any located code path, and the Publisher 95 binary reads
+neither of them, so a reader must preserve them.
+
+**Bit 10** (`0x0400`, 2 records, both `0x0005` in `SCHCLUB.PUB`) is read by the 97 binary at
+`0x0044041F`: when it is clear the colour used is `palette[0]`, when it is set the colour is
+decoded from `dword@+0x23` — i.e. "the pen colour comes from the record". `[OBSERVED]`
+
+### 6.7.7 The colour pair `+0x18` / `+0x1C` and the selector `+0x20`
+
+Three adjacent fields form one block: a colour reference at `+0x18`, a second at `+0x1C`,
+and a selector byte at `+0x20`. `0x0041762A` is the whole reader — it loads the three and
+calls `FUN_00417684(HDC, +0x20, u32@+0x18, u32@+0x1C, 0)`, which decodes both references
+through the colour switch (`0x00418364`), sets the text colour (`0x00408140`), sets the
+background colour (`0x0040CC46`), sets `BkMode` to transparent, and selects the cached
+colour object chosen by `+0x20` (§6.6). `0x004177C3` calls it immediately before drawing
+the record's text, and `0x004271FA` and `0x004B0525` use the same triple. `[OBSERVED,
+binary]`
+
+The writer is the format-apply loop `0x004D02F9` case 2, which calls
+`FUN_004CFC4B(entry, record + 0x18, …)`; that function fills three sub-fields: `+0x18` from
+the first sub-entry (0 when absent), `+0x1C` from the second (forced to **1** when absent),
+and the byte at `+0x20` from the third. `[OBSERVED, binary]`
+
+Corpus identity, 21 925 / 21 925 records of markers `0x0000`–`0x0007` whose `B` byte is the
+95/97 value: `u32@+0x18` is either `0` or a value the colour switch accepts (7 001 non-zero,
+14 924 zero), and `u32@+0x1C` is `0`, `1` or such a value (20 810 are `1`). No record
+carries anything else. `tools/validate.py` enforces this as `shape_colour_pair`.
+`[OBSERVED]`
+
+The names — *text colour* and *text background colour* — are `[INFERENCE]` from the
+`SetTextColor`/`SetBkColor` pair the reader performs; the offsets and the domains are
+`[OBSERVED]`. This block is the real "fill/colour" trio that libmspub's `+0x2A` claim was
+looking for (§6.5).
+
+### 6.7.8 The marker-`0x0004` inset quad: `+0x29` … `+0x38`
+
+`0x00405740` reads **four** `i32` from `+0x29`, `+0x2D`, `+0x31`, `+0x35` and passes them to
+`0x00405A1A`, which treats them as `(left, top, right, bottom)` *insets* of the rectangle
+(`left -= a`, `top -= b`, `right += c`, `bottom += d`, each clamped). The chapter's
+12-byte frame descriptor (§6.7.3) therefore has a fourth dword, and for `0x0004` — a line —
+the whole 16-byte run is the line's half-width inset quad: the insets are the line width
+projected on each axis. `[OBSERVED, binary]`
+
+Corpus identity over the 2 785 `0x0004` records: `top + bottom` equals the width decoded
+from `+0x22` (§6.7.1) in 1 467 records (e.g. width code `0x01` = 12 700 EMU → `6 350 + 6 350`
+in 976 records, `0x04` → `25 400 + 25 400` in 205, `0x81` → `1 587 + 1 588` in 62), and
+`left + right` equals it in a further 434; the 45° records show the projection factor
+(4 490 = 6 350 · cos 45°). The 848 records whose insets are all zero are lines whose
+hit-test rectangle is the geometric box itself. `[OBSERVED]`
+
+### 6.7.9 What is *not* in the record
+
+There is no shadow colour, no shadow offset, no fill-type byte at `+0x2A` and no line-flag
+quad at `+0x40`. Every byte the draw, hit-test and shadow paths consume is listed in the
+table at the head of §6.7. A reader must preserve every other byte of the record.
+`[OBSERVED]`
 
 ## 6.8 Validation
 
@@ -386,10 +572,11 @@ must preserve every byte not listed above. `[OBSERVED]`
 | `shape_bbox_ordered`: `l ≤ r`, `t ≤ b` | 0 violations |
 | `shape_bbox_magnitude`: \|coordinate\| < 400 in | 0 violations |
 | `shape_colour_ref`: `u32@+0x23` decodes under the colour switch | 0 violations (21 925 records) |
+| `shape_colour_pair`: `u32@+0x18` is `0` or decodes; `u32@+0x1C` is `0`, `1` or decodes | 0 violations (21 925 records) |
 | `shape_text_colour`: `u32@+0x70` is a reference or `0xFFFFFFFF` | 0 violations (3 633 records) |
 | `shape8_tail`: `0x0008` count pair, element size 2, `size = 0x80 + 2·count` | 0 violations (114 records) |
 
-The two colour checks are gated on the Publisher 95/97 length byte (§6.3): a record
+The three colour checks are gated on the Publisher 95/97 length byte (§6.3): a record
 whose `B` is one of 92/96/116/116/59/62/53/41 has the 95/97 field layout at `+0x23`. The
 Publisher 98 layout (`B + 8`) is rejected by the gate rather than by a second offset table,
 because the Publisher 98 corpus contains five documents and the shifted offset is not yet
@@ -429,29 +616,6 @@ proven. `shape8_tail` is not gated: `0x0008` exists only in the Publisher 98 cor
   file. The experiment that would settle it: find the producer in the binary by searching
   for the store of `+0x02` while a record is built (the four constants are `0x8C`, `0x90`,
   `0x98`, `0x9C` and `A + 2`), then trace its input. `[UNKNOWN]`
-
-* **Meaning of bits 2 and 4 of the `+0x16` word** — re-scoped. The measured identities are:
-
-  | Identity | Count |
-  |---|---|
-  | value set has 16 members; `0x0000` in 20 043 / 21 925 | `[OBSERVED]` |
-  | bit 0 set ⇒ byte `+0x20` ≠ 0 (text present) | 44 / 44 |
-  | bit 9 (`0x200`) set ⇒ parent is a `0x000F` group | 92 / 92 |
-  | bit 11 (`0x800`) set ⇒ parent is a `0x000F` group | 289 / 289 |
-  | bit 3 set ⇒ bit 4 also set | 88 / 88 |
-  | no correlation with rotation: bit 2 set 1 570 times, rotated 90 | — |
-
-  `[OBSERVED]` Bit 6 (`0x40`) is absent from the 95/97 corpus and is read by VA
-  `0x004F2554`/`0x004F269A` as "wrap text around the outline"; Publisher 98 sets `0x300`
-  in `0x0005`. Blocking fact: what sets bit 2 (1 570 instances) and bit 4 (91 instances,
-  35 of them rotated). Experiment: the shape-property UI writes the word back through VA
-  `0x00416AFB`, so a breakpoint on that store names the toggle. `[UNKNOWN]`
-
-* **Shadow.** No shape-record offset is read by a shadow path in either binary, and the
-  corpus has no shadow-specific value; the two colour slots of `0x0005` are fill and line
-  (§6.7.4), not shadow. Blocking fact: whether Publisher 95 stores shadows at all in this
-  record family. Experiment: apply a shadow to a rectangle in Publisher 95, save, diff the
-  `0x0005` record against the same rectangle without a shadow. `[UNKNOWN]`
 
 * The **identity** of the 8 bytes Publisher 98 inserts. Its *position* is now known (§6.3):
   an insertion in `+0x1C … +0x2A`, not an append; it moves `+0x23` (the pen colour) out of

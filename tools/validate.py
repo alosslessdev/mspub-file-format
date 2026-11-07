@@ -60,11 +60,13 @@ CHECKS = [
     "cfb_parse", "contents_magic", "declared_length", "format_version_300",
     "directory_offsets_ascending", "directory_ids_unique", "directory_parents_resolve",
     "chunk_extents_cover_stream", "single_document_chunk", "document_size_rule",
+    "document_id_base", "document_flags_domain", "document_coord_system",
+    "document_tab_interval",
     "page_size_equation", "page_children_exist", "page_child_count_pair",
     "shape_bbox_ordered", "shape_bbox_magnitude", "image_data_length_prefix", "image_data_wmf",
     "record_length_byte", "record_min_size", "record_0x22_is_18", "quill_list_terminates", "object_link_resolves",
     "group_size_equation", "group_count_pair", "group_bbox_ordered",
-    "shape_colour_ref", "shape_text_colour", "shape8_tail",
+    "shape_colour_ref", "shape_colour_pair", "shape_text_colour", "shape8_tail",
     "rec_0x3a_container", "rec_0x3b_empty", "rec_0x3f_label",
     "rec_0x4e_element_size", "rec_0x52_container", "borderart_0x1f_container",
     "image_record_base",
@@ -125,6 +127,22 @@ def check_file(path: str, stats: collections.Counter, failures: list):
     if delta not in (0, 30, 72):
         fail("document_size_rule", "pages=%d size=%d delta=%d" % (npages, dc.size, delta))
     stats["doc_delta_%d" % delta] += 1
+    # spec/04 §4.7/§4.9/§4.10: the fixed id base, the flag-word bit domain, the
+    # default tab interval in twips, and the coordinate-system enumeration.
+    if len(dc.data) < 0x3E:
+        fail("document_id_base", "id=%#06x size=%d short" % (dc.id, dc.size))
+    else:
+        if struct.unpack_from("<H", dc.data, 0x0E)[0] != 1:
+            fail("document_id_base", "u16@+0x0E=%d" % struct.unpack_from("<H", dc.data, 0x0E)[0])
+        flags = struct.unpack_from("<H", dc.data, 0x0A)[0]
+        if flags & ~0x161E:
+            fail("document_flags_domain", "flags=%#06x" % flags)
+        coord = struct.unpack_from("<H", dc.data, 0x12)[0]
+        if coord not in (0, 1, 3, 4, 5, 6, 7, 8):
+            fail("document_coord_system", "coordSystem=%d" % coord)
+        tab = struct.unpack_from("<H", dc.data, 0x3C)[0]
+        if tab not in (360, 432, 720, 1296):
+            fail("document_tab_interval", "u16@+0x3C=%d" % tab)
     width = struct.unpack_from("<I", dc.data, 0x14)[0]
     height = struct.unpack_from("<I", dc.data, 0x18)[0]
 
@@ -212,6 +230,17 @@ def check_file(path: str, stats: collections.Counter, failures: list):
                     if not colour_ref_ok(ref):
                         fail("shape_colour_ref", "id=%#06x type=%#06x ref=%#010x"
                              % (c.id, c.type_marker, ref))
+                # The two colour references at +0x18/+0x1C (spec 06 §6.7.7): +0x18 is 0 or a
+                # reference, +0x1C is 0, 1 ("none") or a reference. 21925/21925 records.
+                if len(c.data) >= 0x20:
+                    ref_a = struct.unpack_from("<I", c.data, 0x18)[0]
+                    ref_b = struct.unpack_from("<I", c.data, 0x1C)[0]
+                    if ref_a != 0 and not colour_ref_ok(ref_a):
+                        fail("shape_colour_pair", "id=%#06x type=%#06x +0x18=%#010x"
+                             % (c.id, c.type_marker, ref_a))
+                    if ref_b not in (0, 1) and not colour_ref_ok(ref_b):
+                        fail("shape_colour_pair", "id=%#06x type=%#06x +0x1C=%#010x"
+                             % (c.id, c.type_marker, ref_b))
                 # The text colour of an image/polygon record lives at +0x70 and may be -1.
                 if c.type_marker in (0x02, 0x03) and len(c.data) >= 0x74:
                     ref = struct.unpack_from("<I", c.data, 0x70)[0]

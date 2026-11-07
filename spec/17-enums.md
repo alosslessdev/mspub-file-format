@@ -64,11 +64,34 @@ corpus (`[UNKNOWN]` distinction). See chapter 05.
 
 | Field | Location | Domain |
 |---|---|---|
-| `coordinateSystem` | DOCUMENT `+0x12` | `0` ×408, `1` ×20, `3` ×17, `6` ×8, `4` ×7, `8` ×35, `5` ×3, `7` ×1 |
+| `coordinateSystem` | DOCUMENT `+0x12` | `0` ×403, `8` ×35, `1` ×19, `3` ×17, `6` ×8, `4` ×7, `5` ×3, `7` ×1 |
+| `publicationType` | DOCUMENT `+0x64` | `0 … 34` (0…26 in Publisher 95), 26 distinct |
+| `defaultTabTwips` | DOCUMENT `+0x3C` | `720` ×484, `432` ×4, `360` ×3, `1296` ×2 — twips |
 
-`0` is the ordinary page-origin system. `[UNKNOWN]` for the others; the value is
-preserved verbatim by a reader. libmspub interprets `0x0007` as "banner"; the corpus
-contains exactly one document with `7`, so that reading is `[INFERENCE]`.
+`coordinateSystem` selects how the publication page is arranged on the sheet. The
+dispatcher is VA `0x004DB30C`, which rewrites the page rectangle per value; chapter 04
+§4.10 gives the full table.
+
+| Value | Meaning |
+|---|---|
+| `0` | one page per sheet (base rectangle) |
+| `1` | two pages per sheet, side by side (x extent halved) |
+| `2` | two pages per sheet, stacked (y extent halved); the two-page-spread view is enabled only for this value |
+| `3` | four pages per sheet, fold on the left (both extents halved) |
+| `4` | four pages per sheet, fold on the top (both halved, page rotated 90°) |
+| `5` | index card, 5 × 3 in default |
+| `6` | business card, 3.5 × 2 in default |
+| `7` | banner (page-size limit ×4.8, zoom floor 68 %) |
+| `8` | label (Publisher 97 only; no geometry transform) |
+
+`8` never occurs in the Publisher 95 corpus and `2` never occurs in any corpus file, though
+both are handled by the dispatcher. The name `coordinateSystem` is the one libmspub uses for
+the same word; the meanings above come from the binary, not from prior art. [OBSERVED]
+
+`publicationType` is read by three switches (VAs `0x004BF85F`, `0x004C6C37`, `0x00561D04`)
+that map it onto a resource index and a help/navigation topic. All 35 label publications
+carry `15`, the value the Publisher 97 layout table maps to `coordinateSystem == 8`
+(chapter 04 §4.9.3).
 
 ## 17.5 Geometry
 

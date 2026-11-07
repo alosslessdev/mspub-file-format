@@ -111,8 +111,11 @@ specification names, over the 130 Publisher 95 documents:
 | unnamed bytes | 39.9 % (750 803 bytes) |
 
 That 60.1 % is the honest completeness number for the Publisher 95 record interiors: the
-framing, geometry, size rules and document-level tables are named, while fill/line/shadow,
-text-link and the run-level formatting bytes are not yet decoded. It is published so a reader
+framing, geometry, size rules, colour references and document-level tables are named.
+Since that measurement the shape interior was closed further: fill/line/outline colours, line
+width, text colour, the shadow rule and the flag word are now assigned (chapter 06 §6.7), and
+the 95/97 text pool's control bytes are closed (chapter 13 §13.14.1), so the residue is now the
+Publisher 98-only records and the DOCUMENT print fields listed in each chapter's Open table. It is published so a reader
 can tell which parts of a record must be preserved verbatim rather than interpreted.
 
 ## 19.4 Reproducing
