@@ -483,6 +483,17 @@ So `CHEKLIST.JSP`'s `TOKN` id 0 and `TCD ` ids 1 and 2 name the 1st, 2nd and 3rd
 `MCLD.ids` = `{1, 2, 3}`, which is why `id + 1 ∈ MCLD.ids` held; that relation is a
 coincidence of the two numbering schemes, not the format rule.
 
+**3. The derivable binding rule (Publisher 95/97 `Contents` side).** The file stores no
+shape→object ordinal, but the pairing is *derivable* from the text ids and the block counts:
+group the content shapes (`0x0000`/`0x0001`) by their `u16@+0x46` text id, discarding the
+`0xFFFF` sentinel and the zero-box gallery defaults (which all carry text id 0); the *k*-th
+group owns the *k*-th `0x0C`-delimited block of the text pool, and within a group the frame
+whose `A·B` (chapter 06 §6.4.1: columns × rows) equals that block's `0x0F` cell count is the
+table frame. Text ids repeat across frames precisely because one story flows across several
+frames, which is why a *k*-th-ordinal rule fails. `[OBSERVED]` on 163/163 tables across the
+corpus (validated against `CATALOG.PUB`, `BAS2COL.PUB`, `pricelst.pub` by hand, 0 mismatches).
+This is the rule a reader should implement; it is a derivation, not a stored field.
+
 What is **excluded**, with counts over the three text-bearing documents:
 
 | candidate | result |
