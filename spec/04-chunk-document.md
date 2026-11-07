@@ -186,12 +186,12 @@ pageIds[] resolves to distinct PAGE ids and page order == ascending chunk offset
 
 ## 4.9 Fields with no reader — the print/settings residue
 
-The DOCUMENT chunk is loaded into one contiguous block and `DAT_00587AA8` (Publisher 95) /
-`DAT_00613920` (Publisher 97/98) is the locked pointer to it, so `*(u16 *)(document + N)` in
-the decompilation *is* `u16@N` of the on-disk record. A full scan of both executables — every
-access to the document pointer, to a local derived from it, and to the inline form
-`*(int *)((u32)DAT_005878A0 * 0x10 + 8 + DAT_00585A74) + N` — yields the complete read/write
-map below.
+The DOCUMENT chunk is loaded into one contiguous block and `DAT_00587AA8` (Publisher 95),
+`DAT_005D27C8` (97) and `DAT_00613920` (98) are the locked pointers to it, so
+`*(u16 *)(document + N)` in the decompilation *is* `u16@N` of the on-disk record. A full scan
+of all three executables — every access to the document pointer, to a local derived from it,
+and to the inline form `*(int *)((u32)DAT_005878A0 * 0x10 + 8 + DAT_00585A74) + N` — yields
+the complete read/write map below.
 
 | Offset | Read | Written | Meaning |
 |---|---|---|---|
@@ -201,9 +201,10 @@ map below.
 | `+0x3C` | `0x00409F85` | `0x00557A69` | default tab interval (§4.9.1) |
 | `+0x64` | `0x004BF85F`, `0x004C6C37`, `0x00561D04` | — | publication type selector (§4.9.3) |
 
-Scan scope for the negatives: all 3 826 functions of `MSPUB.EXE` 95 (`C:\pwrk\decomp95`) and
-all 5 361 functions of `MSPUB.EXE` 98 (`notes/p98/decomp98`), including one-hop callees that
-receive the document pointer as an argument. The three never-read words are therefore pure
+Scan scope for the negatives: all 3 826 functions of `MSPUB.EXE` 95 (`C:\pwrk\decomp95`), all
+4 253 functions of `MSPUB.EXE` 97 (`notes/p98/decomp97`) and all 5 361 functions of
+`MSPUB.EXE` 98 (`notes/p98/decomp98`), including one-hop callees that receive the document
+pointer as an argument. The three never-read words are therefore pure
 residue: they arrive with the file and leave with it, and no UI or layout path branches on
 them. Their correlation with the print setup chunk is only historical — `0x0029+0x50`
 (`dmPaperSize`) equals `+0x2E` in 103/130 Publisher 95 files, but no code copies either into
@@ -243,11 +244,14 @@ word is `Npages − 1`.
 
 No function in either executable reads or writes these words. They keep whatever the
 creating application wrote: `+0x2E` takes `{0,1,2,4,7,14}` and `+0x30` takes `{0,4,5,6,13,14}`
-over 493 files, both plausibly a 16-bit `DEVMODE` fragment (`dmPaperSize` at `+0x2E`,
-`dmPaperLength` at `+0x30`), but the *printer* `DEVMODE` the application actually uses is read
-from a separate 16-bit `DEVMODE` at `+0x2C`/`+0x2E`/`+0x30`/`+0x3C`/`+0x3E`/`+0x40` by
-VA `0x00457842`, which copies those six words into six print-device globals. Nothing bridges
-the two. `+0x36` has no such reading at all. [OBSERVED negative]
+over 493 files. The pair sits exactly where a 16-bit `DEVMODE` keeps `dmPaperSize` (`+0x2E`)
+and `dmPaperLength` (`+0x30`), and `dmPaperSize` is the only reading that fits the value set
+(`1` letter, `2` letter-small, `4` ledger, `7` executive, `14` folio); `+0x30`'s values are too
+small for `dmPaperLength` (1/10 mm), so its meaning stays [UNKNOWN]. The print path does not
+use this pair: the printer block the application really reads is the one at `+0x2C`…`+0x40` of
+`DAT_005870E0`, from which VA `0x00457842` copies `+0x2C`/`+0x2E`/`+0x30`/`+0x3C`/`+0x3E`/`+0x40`
+into six print-device globals. Nothing bridges that block and the DOCUMENT word. `+0x36` has
+no reading at all. [OBSERVED negative]
 
 ### 4.9.3 `+0x64` — publication type selector
 
@@ -296,6 +300,11 @@ Supporting evidence:
   `0x02B9A1C0` otherwise; VAs `0x0043A234`, `0x0048A0CB`, `0x004C781E`, `0x004D4709` raise the
   zoom floor from 71 % to 68 % for value 7.
 * **`0x004DB5D4`** maps the value to a grid division count: 4 for 1/3/4, 2 for 2, 1 otherwise.
+* **Page setup.** VA `0x0045A038` reads the word and, for every value except `5` and `6`, feeds
+  the page rectangle through `0x004DB30C` and stores the result back into `document+0x14/+0x18`.
+  The two card types are excluded because their page size is not derived from the sheet.
+* **Device setup.** VA `0x0044325E` passes the word to `0x00430B56` every time the view's device
+  context changes, so the banner page limit is re-applied per DC.
 * **Corpus.** 8 never occurs in the 130 Publisher 95 documents; all 35 occurrences are
   Publisher 97 documents whose file names and page sizes are labels (`DSKLABL2.PUB` 2.75 ×
   2.75 in, `B7160.PUB` 2.5 × 1.5 in, …). Value 2 never occurs in the corpus at all — the

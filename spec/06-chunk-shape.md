@@ -453,7 +453,8 @@ no writer in the Publisher 95 binary, and the rest are written by the 95 format 
 | 9 | `0x0200` | 486 | — | `0x005A2901`, `0x00571C62` (98) | group-child bit (§ below) |
 | 10 | `0x0400` | 2 | — | `0x0044041F` (97) | pen colour taken from `+0x23` |
 | 11 | `0x0800` | 289 | `0x004217A7`, `0x0042453B` | `0x004217A7`, `0x0042453B`, `0x0042D6A8` (97) | group-child bit (§ below) |
-| 12–15 | — | 0 | — | `0x004F5E26` (`0x2000`, 98) | never set in the corpus |
+| 12 | `0x1000` | 0 | — | `0x00480E84`, `0x00483EB6` (98) | never set in the corpus |
+| 13 | `0x2000` | 0 | — | `0x0045140D` (97), `0x004F5E26` (98) | the width bytes are **point counts**, not width codes |
 
 `[OBSERVED]` — counts over 22 354 records of markers `0x0000`–`0x0007` in the four corpora.
 "Written at" names the VA that stores the bit into a **chunk record** (not into the
@@ -466,26 +467,44 @@ before selecting, the walkers `0x004238CD`/`0x00439041`/`0x0042FAC5` act only on
 that carry it, and the paste path `0x00438D7C` clears it (`& 0xFFFD`) on the copy. It exists
 only between load and save.
 
-**Bit 2 has no reader.** A full scan of the three decompiled trees — MSPUB.EXE 95 (3 825
-functions), MSPUB.EXE 97 (4 252), MSPUB.EXE 98 (5 360) — finds no read of mask `0x0004`
-(byte or word form, including the `& 6`/`& 0xC`/`& 0x1C` combinations) on a chunk record.
-The only writer is `0x00416C82`, which walks the children of the current selection and
-performs `flags = flags ^ ((flags << 1) ^ flags) & 4`, i.e. **bit 2 := bit 1**, for each of
-them; it is called by the format/rotate commands (`0x00416CD7`, `0x004E4CD4`, `0x004A7C28`,
-`0x004C5650`). Bit 2 is therefore bookkeeping ("this record was touched by the last format
-command") that the writer serialises and no reader consumes. `[OBSERVED]` for the absence
-(closed negative, three binaries); `[INFERENCE]` for the name.
+**Bit 2 has no reader and no setter.** A full scan of the three decompiled executables —
+MSPUB.EXE 95 (3 825 functions), MSPUB.EXE 97 (4 252), MSPUB.EXE 98 (5 360) — finds no read
+of mask `0x0004` (byte or word form, including the `& 6`/`& 0xC`/`& 0x1C` combinations) on a
+chunk record, and no store that *sets* it: the only stores that touch bits 0–2 are the
+`bit 2 := bit 1` sync at `0x00416C82` (95) and its 98 twins `0x00492A72`/`0x00502369`, which
+write `flags & 0xFFFB | (flags & 2) << 1`. The other modules were checked and contain no
+reference to the flag word at all: PUBDLG.DLL 95 (57 functions), PUBOLE32.DLL 95 (207,
+`C:\pwrk\decomp-ole95`) and QS98.DLL (2 103, `notes/p98q/decomp_quill`). `[OBSERVED]`
 
-**Bits 3 and 4 are a pair.** `0x004D02F9` case 1 writes both from the *same* boolean
-(`bit 3 := x; bit 4 := x`), which is why the corpus identity *bit 3 ⇒ bit 4* holds 88/88.
-They occur only on markers `0x0002`/`0x0003` (88 and 91 records; the 3 bit-4-only records
-are Publisher 95 marker-3 records written before the pair was synchronised). Every reader
-routes a marker-2/3 record to the marker-6 code path when the pair is set:
-`0x004177C3`/`0x004051D9`/`0x004AFE67` draw and hit-test it as a frame
-(`0x004675F8`), `0x0040739B` dispatches it to `0x004731EA`, and `0x00416AFB` maps it onto
-the marker-6 property page. `[OBSERVED]` for the writes, the reads and the corpus
-identities; `[INFERENCE]` for the reading "the record is a framed picture rather than a
-plain polygon".
+What the writer does is therefore the whole story: the sync routine walks the children of
+the current selection and copies bit 1 into bit 2; bit 1's only setter, `0x004ADAD0`, sets
+it around a call to `0x0044739B` and restores the previous value. Bit 2 is thus a snapshot
+of a transient flag taken by an object-modifying command (`0x00416CD7`, `0x004E4CD4`,
+`0x004A7C28`, `0x004C5650`), serialised by the writer and consumed by nobody.
+`[INFERENCE]` for the name, `[OBSERVED]` for the code.
+
+**Bits 3 and 4 are a pair.** The writer is `0x004D02F9` case 1 (format attribute id 1): it
+computes one boolean `x` (the attribute entry exists and its style field
+`(u16@entry+2 >> 8) & 0x1C` equals 4), then executes `bit 3 := x` and `bit 4 := x` — the same
+value twice, which is why the corpus identity *bit 3 ⇒ bit 4* holds 88/88. They occur only
+on markers `0x0002`/`0x0003` (88 and 91 records; the 3 bit-4-only records are Publisher 95
+marker-3 records written before the pair was synchronised).
+
+The reader switch, in `0x004177C3` (and identically in 97 at `0x0045140D`):
+
+| Case label | Action |
+|---|---|
+| `marker == 6` | draw with `0x004675F8` (the frame renderer) |
+| `marker ∈ {2, 3}` **and** bit 3 **and** bit 4 | same call, `0x004675F8` |
+| `marker ∈ {2, 3}`, either bit clear | fall through to the ordinary polygon/text path |
+
+and in the predicate `0x004051D9` the same case list returns **0** ("this record has no
+frame border"), i.e. the pair is what makes a marker-2/3 record answer "I am a frame".
+`0x0040739B` dispatches those records to the frame hit-test `0x004731EA`, `0x004AFE67`
+draws their shadow through the same frame path, and `0x00416AFB` uses bit 3 alone to send
+them to the marker-6 property conversion (`0x004797CD`). `[OBSERVED]` for the writer, the
+case labels and the actions; `[INFERENCE]` for the reading "the record is a framed picture
+rather than a plain polygon".
 
 **Bits 5 and 6 are computed at draw time.** Bit 6 is the *closed loop* flag of the outline
 smoother: `0x004F269A` computes the point count as `n − (bit 6 ? 1 : 0)` and, when bit 6 is
@@ -495,6 +514,25 @@ outline source: `0x00420CAE` takes the record's counted tail (`u16@(B + chunk)`,
 bit 5 is clear and the smoothed outline when it is set. Neither bit is ever written to the
 file (0/22 354).
 
+**Bits 8–13 are *interpretation* flags for the record's own values.** Each one is consumed by
+a switch that chooses between "read the byte as an index into a table" and "read the byte as
+a literal", which is what makes them provable rather than correlated:
+
+* **Bit 13** (`0x2000`) — `0x0045140D` (97) and `0x004F5E26` (98) both branch
+  `if ((flags & 0x2000) == 0) width = table(byte@+0x2B) else width = byte@+0x2B * 0x319C`,
+  and `0x319C` = 12 700 EMU = 1 pt. The 98 site repeats the same two-way branch for all four
+  of its width bytes (`+0x2A`, `+0x35`, `+0x3B`, `+0x41`). So bit 13 means "these bytes are
+  point counts, not width codes". Never set in the corpus.
+* **Bit 10** (`0x0400`) — `0x0044041F` (97) branches `if ((flags & 0x400) == 0) colour =
+  palette[0] else colour = decode(dword@+0x23)`, and the 98 dialog initialiser `0x00483EB6`
+  branches the same way on `flags >> 10 & 1` to decide whether to copy `dword@+0x2B` into
+  the dialog's colour slot. So bit 10 means "the pen colour comes from the record" rather
+  than from the default. Set in 2 records, both `0x0005` in `SCHCLUB.PUB`.
+* **Bit 12** (`0x1000`) — `0x00483EB6` builds a radio-button id as
+  `(flags & 0x1000) >> 12 | 0x197A` and passes it to `CheckRadioButton(hDlg, 0x197A,
+  0x197B, …)`: the bit is the *second* of a two-way choice in the fill/line dialog, and
+  `0x00480E84` reads the same bit to pick a rendering mode. Never set in the corpus.
+
 **Bits 9 and 11 are group-child bits.** They are 100 % confined to records whose parent is
 a `0x000F` group: bit 9 in **486/486** records, bit 11 in **289/289**. They are the only
 bits of the word that the Publisher 97/98 binaries read on a chunk record:
@@ -503,13 +541,10 @@ and re-set it (`+0x17 |= 8`) only when the re-link through `0x004B555B` fails; `
 calls `FUN_004B5512` on the record when bit 11 is set; the 98 binary's `0x005A2901` returns
 1 early for a bit-9 record and `0x00571C62` saves the bit into a work structure. Bit 8 is
 never set without bit 9 (394/394) and occurs only in the Publisher 98 corpus on marker
-`0x0005` (the `0x0300` value). `[OBSERVED]` for the identities and the VAs. What the bits
-*select* is not established by any located code path, and the Publisher 95 binary reads
-neither of them, so a reader must preserve them.
-
-**Bit 10** (`0x0400`, 2 records, both `0x0005` in `SCHCLUB.PUB`) is read by the 97 binary at
-`0x0044041F`: when it is clear the colour used is `palette[0]`, when it is set the colour is
-decoded from `dword@+0x23` — i.e. "the pen colour comes from the record". `[OBSERVED]`
+`0x0005` (the `0x0300` value). `[OBSERVED]` for the identities and the VAs. No located
+switch reads either bit as a value — the 97/98 sites only test presence and copy it — so
+what the bits *select* is not established, and the Publisher 95 binary reads neither of
+them. A reader must preserve them.
 
 ### 6.7.7 The colour pair `+0x18` / `+0x1C` and the selector `+0x20`
 

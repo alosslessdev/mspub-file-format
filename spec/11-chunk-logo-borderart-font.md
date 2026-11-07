@@ -95,9 +95,9 @@ id. [OBSERVED for the layout; INFERENCE for the style-id reading]
 +0x06 u16 nEntries    duplicate
 +0x08 u16 endOffset   == size - 0x0E      (offset-table flavour)
         u16 elementSize                   (fixed-element flavour)
-+0x0A u16 format      0 / 1 / 5
-+0x0C u16 0xFFFF      sentinel
-+0x0E ...             offsets relative to chunk+0x0E (0xFFFF = empty), then payload
++0x0A u16 mode        0 / 1 / 5
++0x0C u16 freeHead    free-slot-list head, 0xFFFF = list empty   (see 11.3.1)
++0x0E ...             offsets relative to chunk+0x0E, then payload
 ```
 
 Two flavours:
@@ -115,6 +115,41 @@ Two flavours:
 that `A` doubles with the width is refuted: the widened offset width is invisible in the
 stamp. A reader must therefore discriminate the two forms by exact fit (§11.6, §11.7),
 never by `A`. [OBSERVED]
+
+### 11.3.1 The free-slot list
+
+`+0x0C` (W16) / `+0x12` (W32) is **not** a sentinel: it is the head of a singly linked
+free list threaded through the offset table itself. A slot is *live* when its value is
+`>= n+1` (a byte offset, always `>= w·(n+1)`); a slot is *free* when its value is a slot
+index (`< n+1`) — that value is the index of the **next free slot**. The list ends at
+`0xFFFF` (W16) / `0xFFFFFFFF` (W32), which is also the value of the head when no slot is
+free. The in-memory record keeps this list at `header+0x0E` with the slots at
+`header+0x12`, where `header = record + A`; the file keeps it at `+0x0C`/`+0x0E` (W16) or
+`+0x12`/`+0x16` (W32), i.e. the on-disk form is the in-memory form shifted by the `A`
+descriptor.
+
+The operations, `MSPUB.EXE` 98 (complete: 5 360 functions decompiled):
+
+| VA | Operation |
+|---|---|
+| `0x004fd6b7` | **allocate one slot**. If the head is `-1` and `count == countDup`, grow first (call `0x004fda56`) and then append: `count++`, `slot[count] = slot[count-1]` (a new empty element). Otherwise pop: `head = slot[head]`, then overwrite the popped slot with the value of the next slot whose value is `>= count` — i.e. the freed element is re-created as a zero-length duplicate of the following element. |
+| `0x004fd269` | **shift offsets**. Walks `slot[param_2 … n]` and adds a delta to every slot whose value is `>= count`; free links (`< count`) are left untouched. This is the test that distinguishes the two kinds of slot word. |
+| `0x004fd748` | store a value into `slot[param_2]`. |
+| `0x004fd0a5` | **element accessor** for the offset-table flavour: `base = rec + *(u8*)(rec+2)`; `off[k] = *(u32*)(base + 0x12 + 4k)`; returns `base + 0x12 + off[k]`, and the element length is `next slot with value >= count` minus `off[k]`. It reads every slot as a `u32`, so a `u16` (Publisher 95) table must have been widened before it reaches this routine. |
+| `0x004fcbe9` | **element accessor** for the fixed-element flavour: `base + 10 + elementSize·k`, `elementSize` at `base+4`. |
+
+Corpus identity (493 chunks of `0x001F`; the same test also holds for `0x0026`, `0x0032`,
+`0x003A`): every slot word that is not a byte offset lies on exactly one chain starting
+at the head, each link is a valid slot index, the chain terminates at `0xFFFF`/
+`0xFFFFFFFF`, and the chain covers **all** such words — 51/51 chunks with any free word,
+0 exceptions (`0x001F` 51, `0x0026` 36/36, `0x0032` 23/23, `0x003A` 12/12). Worked
+examples: `AWARD.PUB` head `1`, chain `1 → 0 → 2 → END` (slots `2, 0, 0xFFFF, 0x0A,
+0xC04`); `BRCATALG.PUB` head `0x13`, chain `19 → 18 → … → 1 → END` (the run
+`1, 2, … 0x12` that looked like an id list is this chain read backwards).
+
+`0x001E` never has a free slot (head `0xFFFF` 493/493); `0x0023` and `0x002A` do not use
+the list at all — their word at `+0x0C` is always `0` while no slot is free (493/493 and
+490/490), so a reader must not treat `0` as a head for those two types. [OBSERVED]
 
 ## 11.4 Size rules
 
@@ -189,18 +224,31 @@ Entry *k* runs from `base + off[k]` to `base + off[k+1]`, so contiguity is
   (measured per face over the 5 documents: `Times New Roman` `0x94`, `Flexure`/
   `Imprint MT Shadow` `0xD4`, `Lucida Handwriting` `0xC4`, `Impact`/`Copperplate Gothic
   Bold` `0xA4`, `Palatino`/`Times` `0x14`, `Symbol` `0x94`; only `Wingdings` moves from
-  `0x84`/`0x80` in 95/97 to `0x94`, i.e. the ROMAN bit is added). The *first* byte is the
-  charset only while it takes `0x00`/`0x01`/`0x02` (those still match the face, and
-  `Symbol`/`Wingdings` are still `0x02`). The 39 P98 font entries carry exactly five
-  first-byte values — `0x00` ×17, `0x02` ×10, `0xCC` ×8, `0x01` ×2, `0x4D` ×2 — and
-  `0xCC`/`0x4D` are not Windows charsets. `0xCC` occurs on `Times New Roman` (5/5),
-  `Impact` (2/2) and `Book Antiqua` (1/1); `0x4D` occurs on
-  `Lucida Handwriting` and `Harrington` in `INFOSHET.JSP` but the **same two faces carry
-  `0x00` in `CHEKLIST.JSP`**. The byte is therefore not a property of the face and not a
-  function of the face name; it is per-document entry state (the two values are the low
-  bytes of `'Ì'` and `'M'`, consistent with stale UTF-16 text). Reading rule: treat
-  `0x00`/`0x01`/`0x02` as the charset and ignore anything else. [OBSERVED for the values
-  and the differential; INFERENCE for the stale-text reading]
+  `0x84`/`0x80` in 95/97 to `0x94`, i.e. the ROMAN bit is added). The *first* byte is
+  `lfCharSet` in **every** generation, and its value domain is the Windows charset set:
+  `0x00` ANSI, `0x01` DEFAULT, `0x02` SYMBOL, `0xFF` OEM in 95/97, and additionally
+  `0xCC` = `RUSSIAN_CHARSET` (204) and `0x4D` = `MAC_CHARSET` (77) in the 5 P98
+  publications. The 39 P98 entries carry exactly five first-byte values — `0x00` ×17,
+  `0x02` ×10, `0xCC` ×8, `0x01` ×2, `0x4D` ×2. `0xCC` occurs on `Times New Roman`
+  (5/5), `Impact` (2/2) and `Book Antiqua` (1/1); `0x4D` occurs on
+  `Lucida Handwriting` and `Harrington` in `INFOSHET.JSP` while the **same two faces
+  carry `0x00` in `CHEKLIST.JSP`**. The byte is therefore not a property of the face:
+  `lfCharSet` is an independent `LOGFONT` member that the author sets per document, so
+  two documents may name the same face under different charsets. The earlier readings
+  ("`0xCC`/`0x4D` are not Windows charsets", "stale UTF-16 text") are refuted.
+
+  Binary evidence, `MSPUB.EXE` 98. The in-memory font object **is** a `LOGFONTA`:
+  `0x00553c5e` returns `memmove(dst, obj, 0x1C)` followed by a 0x40-byte face name, and
+  `0x00556f55` / `0x005571aa` hand that pointer straight to `CreateFontIndirectA` /
+  `EnumFontFamiliesExA`, so `obj+0x17` is `lfCharSet` and `obj+0x1B` is
+  `lfPitchAndFamily`. `0x004ed57b` reads `*(char *)(obj + 0x17)` and branches:
+  `0xFF` (OEM) → `GetACP()` then `0x004efd95(codepage, 0)`; `0x01` (DEFAULT) → treated as
+  `0x00`; anything else → `0x004efd4c(charset, 0)`, which is
+  `TranslateCharsetInfo(charset, &cs, TCI_SRCCHARSET)` and returns
+  `cs.fs.fsCsb[0]`. No validation, no case list, no face-name dependency: the byte is
+  passed to the Windows charset API verbatim, so any charset value — including
+  `0xCC` and `0x4D` — is legal and is reproduced as stored. Reading rule: always treat
+  the first byte as `lfCharSet`. [OBSERVED]
 
 Correction to the earlier statement that the table has "no length byte" and a fixed
 stride: the stride is `2 + strlen + 1`, and the Publisher 97/98 tables widen every offset
@@ -228,18 +276,30 @@ Publisher 97/98, and the form is detected by exact fit, because `(A, B)` stays
 
 Every one of the 493 chunks matches exactly one row (0 ambiguous, 0 matching neither).
 The slot table is `n+1` slots: the **last slot always equals the end offset** (144/144
-populated chunks, all corpora), and the first slot equals the table size `w·(n+1)` in
-109/144. The remaining 35 chunks fail only that first-slot test; in all, 45 chunks
-(116 slots) mix non-offset words into the table — a `0xFFFF`/`0xFFFFFFFF` fence (45 words)
-plus small values `0x0…0x12` (71 words), one id list occupying consecutive slots
-(`BRCATALG.PUB`: slots `[0x2C, 0xFFFF, 1, 2, … 0x12, 0xC66, 0x1036]`, the 18 ids being one
-block and `0xC66` the second entry). Their entries are located by the *tail* slots, which
-is why a reader that only trusts `offs[0]` sees them as unparsable. [OBSERVED]
+populated chunks, all corpora). `n` is a **slot high-water mark, not an entry count**: a
+chunk may have far fewer live elements than slots (e.g. `BRCATALG.PUB` `n = 21` with two
+entries, `CLASSIC.PUB` `n = 2` with none). The words that are not byte offsets are the
+**free-slot list** of §11.3.1: 51 chunks carry one, and in 51/51 the chain from the head
+at `+0x0C`/`+0x12` visits exactly the non-offset slots and ends at `0xFFFF`/
+`0xFFFFFFFF`. The earlier description of a "prefix block" and of "an id list occupying
+consecutive slots" is superseded — `BRCATALG.PUB`'s run `[0x2C, 0xFFFF, 1, 2, … 0x12,
+0xC66, 0x1036]` is a free chain `19 → 18 → … → 1 → END` whose head is `0x13`, with only
+`0x2C` (entry 0), `0xC66` (entry 1) and `0x1036` (end) being offsets. `AWARD.PUB` is the
+other worked shape: head `1`, chain `1 → 0 → 2 → END`, live slots `3` (`0x0A`, the
+`Waveline` entry) and `4` (`0xC04`, the end). [OBSERVED]
+
+A slot is therefore addressed by the **border-style index** stored at `+0x31` of the
+shape's in-memory record: the renderer does
+`FUN_004fd0a5(*(u16 *)(shape + 0x4C), *(u16 *)(shape + 0x31))` — the `0x001F` chunk id
+and the style index — and receives the entry pointer (`MSPUB.EXE` 98, caller
+`0x0042c3a9`). The reader must apply the same rule: `off[k]` is an entry only when
+`k` is not on the free chain.
 
 ### The `0x001F` entry
 
 ```
-+0x00  u16      entryTag          `1`, or `4` when the entry carries an id list
++0x00  u16      entryKind         {1 ×137, 2 ×9, 3 ×3, 4 ×2, 6 ×1} over the 152 entries
+                                  located by the free-list rule; meaning [UNKNOWN]
 +0x02  char[42] nameSlot          NUL-terminated ASCII name; bytes after the NUL are
                                   stale text from a previous longer name
 +0x2C  u16      bandTwips         border band width, twips (80, 120, 200, 240, 480, 720 …)
@@ -249,10 +309,14 @@ is why a reader that only trusts `offs[0]` sees them as unparsable. [OBSERVED]
 +0x42  …                          the tiles, each a standard memory WMF
 ```
 
-The entry prefix is **always two bytes**; it is the offset *slots* that are 2 or 4 bytes
-wide. Measured over the whole corpus (unique entry offsets per chunk): **144 populated
-chunks, 139 name-carrying entries, 42 distinct names, 1 112 tile slots, 1 112/1 112 tiles
-begin `01 00 09 00 00 03`** (a `METAHEADER`,
+The earlier reading of `+0x00` — "`1`, or `4` when the entry carries an id list" — is
+refuted: no entry carries an id list (the id-looking run in `BRCATALG.PUB` is the free
+chain, §11.3.1) and the word takes five values. All 152 entries located this way have a
+printable NUL-terminated name at `+0x02` (0 exceptions), which is what validates the
+parse. The entry prefix is **always two bytes**; it is the offset *slots* that are 2 or 4
+bytes wide. Measured over the whole corpus (unique entry offsets per chunk): **144
+populated chunks, 139 name-carrying entries, 42 distinct names, 1 112 tile slots, 1 112/1
+112 tiles begin `01 00 09 00 00 03`** (a `METAHEADER`,
 type 1, header 9 words, version `0x0300`). The eight slots are the border sides
 **clockwise from the top-left**: TL, top, TR, right, BR, bottom, BL, left; the offsets are
 **not** monotonic and the same tile is often shared by two slots, so a reader must take
@@ -458,9 +522,30 @@ What the record provably is **not** [OBSERVED]:
 
 The keys are shape ordinals: on all 3 populated documents the key set is a superset of
 `{v >> 16}` of the `0x004C` value array (15 ⊇ {1,4,5,…}, 94 ⊇ {5,7,8,…}, 1 ⊇ {1}), i.e.
-the same 16.16 ordinal scale. The record's `+0x04` ordinal is *not* keyed by position, so
-the map is key → record via `+0x04`. Which document-level object owns the ordinal is
-`[UNKNOWN]` (the ordinals run to 114 while the keys stop at 0x7B).
+the same 16.16 ordinal scale. Both arrays are emitted in ascending order and are
+positionally aligned: in 3/3 populated documents `keys[k]` is the key of record `k`
+(keys strictly ascending, records in the same order). The `+0x04` word is a **separate
+ascending sequence number** — unique within the document, spanning 1…114 for 110 records
+(1…20 for 15, 3…114 for 94, 1 for 1), with gaps — not a key and not a chunk id.
+
+**Nothing reads this record.** Scan scope: `MSPUB.EXE` 98 (all 5 360 functions
+decompiled), `MSPUB.EXE` 97 (4 252), `MSPUB.EXE` 95 (3 293) and `QS98.DLL` (2 104); the
+only 30-byte-stride array walker in any of them is the P95/P97 *in-memory* append at
+`0x0058f20b` (97) / `0x00575043` (95), `*(int *)(index * 0x1E + 0x2A + obj)` with the
+index at `obj+0xB4`, and it is absent from the 98 build (no `* 0x1E` anywhere in
+`notes/p98/decomp98`). No function in the 98 build computes the `+0x28 + 4·N` record base
+of this chunk, and none reads `0xCB18967C` from a file record — the only two uses of
+`−9 999 996.0` (`0x004eab08`, `0x0051c0cd`) pass it as a *limit argument* to a virtual
+drawing method at vtable `+0x80`, i.e. the sentinel is regenerated at runtime, never
+loaded. The record is reached only through the `0x0045` object: that record is
+materialised as a C++ object whose in-memory form has a vtable pointer at `+0x14`
+(`MSPUB.EXE` 98 VA `0x005b51d5`, `**(code **)(*obj + 0xF0)(obj)`), so its file `+0x06`
+(which names this chunk) is consumed by a constructor, not by a byte-offset reader.
+`MSPUB.M14`, the only other candidate module, is not a PE (`3f 5f 03 00`) and cannot be
+imported by Ghidra. The `0x0052` payload is therefore a **writer-side dump of a live
+in-memory table** whose pointers are not re-read: a reader must skip it. [OBSERVED for
+the negative and the scan scope; INFERENCE for "dump of a live table", supported by
+`ptrA`/`ptrB` lying in one per-document heap range]
 
 ### 11.11.2 `0x004E` / `0x004F` / `0x0050` — print/checklist sub-records
 
@@ -490,10 +575,29 @@ differently sized, instances: [OBSERVED]
 | `0x004F` | 11 | (306, 26), (207, 17) | `{u16 kind ∈ 1…5, u16 row, u16 col, u8 pad == 0, u32 value}` — 43/43 elements; `row`/`col` are byte-doubled ordinals (`0x0101`, `0x0202` …, `0x0201` once) and `value` ∈ {`0x711BF`, `0x25350`, `0x37CF8`, `0x394C7`, `0x5E817`, `0x882D8`, `0x83B67`, `0xA8EB7`}, i.e. EMU coordinates in the 0.17…0.76 in range |
 | `0x0050` | 5 | (155, 27), (110, 18) | `{u16 id, u16 id, u8 flag}` — 45/45 elements with both id words equal; `flag` is 0 except the final two elements, which repeat the last id with flag 2 then 1 |
 
-Interpretation [INFERENCE]: `0x0050` is an ordered page/row id list with two trailing
-markers, `0x004F` a per-cell grid record (row, column, EMU x), `0x004E` the page/checklist
-layout block; the `0xC0E4` words are the same unset-colour doublet chapter 06 §6.3 records
-in shape bodies. Field semantics inside the 45-byte element remain `[UNKNOWN]`.
+**How the array is addressed.** The header is an `A`-descriptor container with `A = 10`
+(the `0x0A0A` stamp), and the accessor is `MSPUB.EXE` 98 VA `0x004fcbe9`:
+`base = rec + A`, `elementSize = *(short *)(base + 4)`, element `k` at
+`base + 10 + elementSize·k`. That is exactly `+0x0E` (element size) and `+0x14` (array)
+of the file, which is why the size rule is exact. The `0x004E` array is **not indexed by
+position**: VA `0x004e279f` takes the first `u16` of each `0x004F` element as the index
+(`*(char *)(kind * 0x2D + 10 + array0x004E)`) and tests byte `+0x0A` of that 45-byte
+element — so `0x004F.kind ∈ 1…5` is a **format index into the five `0x004E` elements
+1…5** (element 0 is the prologue and is never addressed), not a row/column.
+
+**The 45-byte element** is a cell/box format record. Its width fields are decoded: bytes
+`+0x14`, `+0x1A`, `+0x20`, `+0x26` are each passed to VA `0x004547f1`, which converts the
+byte to EMU as `b * 0x319C` (12 700 EMU = 1 pt) for `b < 0x80`, a 1/3-pt fractional form
+for `b ≥ 0x81`, and `0` for `0xFF` — i.e. four **line widths in points** (the four sides
+of a cell). VA `0x0050c3cb` reads them per side when it strokes a cell, and
+`0x0050b7d2` keeps a 5-element `0x2D`-stride scratch array of them. All four are `0` in
+both `0x004E` instances, so the widths are unexercised. The remaining interior — the
+leading `u16` (`0x40`/`0x50`/`0x60`/`0x70`, i.e. a 4-state value with a `0x10` step), the
+`0xC0E4` words and the `0x6C` constant — has no reader: the `0xC0E4` doublet is the
+unset-colour sentinel of chapter 06 §6.3 (VA `0x0040402e` writes `0xC0E40000` /
+`0xC0E40007` as "no colour"), so the words are colour slots, but no `0x004E` consumer
+reads them. Field semantics inside the 45-byte element remain `[UNKNOWN]` beyond the four
+widths. [OBSERVED for the accessor, the index relation and the widths]
 
 ### `0x0041` is a page slot
 
@@ -538,7 +642,7 @@ size rules; `0x003A` and `0x003F` are now mapped. [OBSERVED]
 | Marker | Instances | Size | Parent | Framing |
 |---|---|---|---|---|
 | `0x002F` | 12 | 38, fixed | `0x0016` story container | `+0x04 u16 0x0002`, `+0x06 u16 0x021A`, `+0x08 u16 1`, `+0x0A u16 1`, `+0x0C u16 4`, `+0x1E u16 0x1E95`, `+0x22 u16 0xFFFF`; interior `[UNKNOWN]` |
-| `0x003A` | 342 (95 `p97`, 247 `p97deluxe`) | 26 … 1 014 | `0x0031` design set, 342/342 | u32 container: `u32@+0x04 == u32@+0x08` (count), `u32@+0x0C == size − 0x16` (end), `u16 1` at `+0x10`, a header word at `+0x12` (`0xFFFFFFFF` in all 330 empty records, 6…56 in the 12 populated), `u32[n+1]` slots at `+0x16` with slot *n* == end — **all 342, the 12 populated included**; the slots index a record arena (below) |
+| `0x003A` | 342 (95 `p97`, 247 `p97deluxe`) | 26 … 1 014 | `0x0031` design set, 342/342 | u32 container: `u32@+0x04 == u32@+0x08` (slot high-water mark), `u32@+0x0C == size − 0x16` (end), `u16 1` at `+0x10`, the free-slot-list head at `+0x12` (`0xFFFFFFFF` = empty, in all 330 empty records; a slot index 6…56 in the 12 populated), `u32[n+1]` slots at `+0x16` with slot *n* == end — **all 342, the 12 populated included**; the slots index a record arena (below) |
 | `0x003B` | 12 | 26, fixed | `0x002F`, 12/12 | one byte body, 12/12: `3b 00 04 04  00000000 00000000 04000000 0100 ffffffff 04000000` |
 | `0x003F` | 35 | 180, fixed | `0x0015` document, 35/35 | label/label-sheet template record — full map below |
 
@@ -558,51 +662,68 @@ follow" the container rule. They do: `u32@+0x0C == size − 0x16` and slot *n* =
 ```
 +0x00 u16 0x003A
 +0x02 u16 0x0404
-+0x04 u32 nEntries            duplicate at +0x08
++0x04 u32 nSlots              duplicate at +0x08; a SLOT HIGH-WATER MARK, not an entry count
 +0x0C u32 end                 == size − 0x16
 +0x10 u16 1
-+0x12 u32 headerWord          0xFFFFFFFF in the 330 empty records, 6…56 in the 12 populated
-                              (pointer to / size of the index block; [UNKNOWN])
++0x12 u32 freeHead            free-slot-list head (§11.3.1); 0xFFFFFFFF = list empty
 +0x16 u32[n+1] slots          relative to +0x16; slot n == end; the table ends at
                               0x16 + 4·(n+1), where the arena begins
       arena: records at the slot targets
 ```
 
-The slots are a *mixed* table, not a monotone offset array: values `>= 4·(n+1)` are
-offsets to records in the arena; values below that and `0xFFFFFFFF` are index/fence words
-(a freed-slot or chaining idiom). The record at a slot target is length-prefixed:
+The slots are the mixed table of §11.3.1: a slot value `>= n+1` is an offset to a record
+in the arena, a value `< n+1` is the next link of the free list, and the list starts at
+`+0x12` and ends at `0xFFFFFFFF`. The corpus confirms the chain on 12/12 populated
+instances (all non-offset words on one chain from the head, 0 exceptions). The `+0x12`
+word that earlier revisions called "headerWord / pointer to the index block" is that
+head: `CLASSIC.PUB` has head `0x1B` with chain `27 → 12 → 29 → 21 → 20 → 28 → 19 → 18 →
+7 → 0 → 8 → END` and 23 live slots. The record at a slot target is length-prefixed:
 
 ```
-+0x00 u16 0
-+0x02 u32 length            whole record length
-+0x06 u32 tag
++0x00 u16 0                 reserved
++0x02 u32 length            whole record length, header included
++0x06 u32 type              property type (see below)
 +0x0A u8[length−10] payload
 ```
 
 Measured over the 12 populated instances (8 distinct documents — `CLASSIC`, `JAZZY`,
 `MODERN` and `PLAIN` are byte-identical duplicates between `p97/x` and
-`p97deluxe/x/PageWiz`): 289 slot-referenced records, **289/289 `u16@+0 == 0`**, length 14
-in 288 (payload = a `u32` in {0,1,2}, tag 1) and length 29 in 1 (tag 4, payload
-`"Your Email Address\0"`). So the arena holds a design-object property list whose text
-records are inline strings and whose common records are four-byte ordinals.
-`[OBSERVED for the framing; INFERENCE for "design-object property list": the only text
-record is an object name]`. The 1-byte residue seen in
-`p97deluxe/x/PageWiz/plain_cd.pub` (arena 575 bytes, 41×14+1) is the one anomaly: that
-document's slot table is one byte longer than `4·(n+1)`.
+`p97deluxe/x/PageWiz`): 289 slot-referenced records, **289/289 `u16@+0 == 0`**, and
+exactly two `type` values:
+
+| `+0x06` | count | `length` | payload |
+|---|---|---|---|
+| `1` | 288 | 14 | one `u32` ∈ {0 ×93, 1 ×99, 2 ×96} |
+| `4` | 1 | 29 | NUL-terminated string, `"Your Email Address\0"` |
+
+`type` 1 carries a fixed 4-byte number and `type` 4 a NUL-terminated string; the two
+observed types coincide with the `MsoPropertyType` numbering (`msoPropertyTypeNumber =
+1`, `msoPropertyTypeString = 4`) — `[INFERENCE]`, the domain is what is observed.
+
+**The arena is one record per `0x0031` array-A element** (12/12): the arena record count
+equals `u16@+0x08` of the parent `0x0031` design set (the array-A count) in every populated
+instance — `CLASSIC` 22, `JAZZY` 18, `MODERN` 26, `PLAIN` 11, `class_cd` 18, `jazzy_cd`
+42, `modrn_cd` 35, `plain_cd` 40 — and array A's last element is the `0x7FFFFFFF`
+sentinel, so record *k* describes array-A element *k*. `[OBSERVED]`
+
+The earlier "1-byte residue" anomaly in `p97deluxe/x/PageWiz/plain_cd.pub` is explained
+and does not exist: that record has `n = 101` slots (41 live) and an arena of
+`40 × 14 + 1 × 29 = 575` bytes, exactly the record array including its single `type`-4
+string record. The slot table is `4·(n+1) = 408` bytes as everywhere else.
 
 ### `0x003F` payload — a label-sheet template
 
 ```
 +0x00 u16 0x003F
-+0x02 u16 0xB4B4
-+0x04 u32 printerDriverFlag  1 in 33, 0 in the 2 `…7169` documents
-+0x08 u32 1                  35/35
++0x02 u16 0xB4B4               the (A,B) stamp, A = B = 0xB4 = 180 = the record size
++0x04 u32 orientation         1 = portrait, 0 = landscape; see below
++0x08 u32 1                   35/35
 +0x0C u32 pageWidthEmu        8.5 in (letter) or 8.27 in (A4) — equal to the DOCUMENT's
 +0x10 u32 pageHeightEmu       11 in or 11.69 in
-+0x14 u32 margin1Emu          EMU; order of the four margins [UNKNOWN]
-+0x18 u32 margin2Emu
-+0x1C u32 margin3Emu
-+0x20 u32 margin4Emu          0 in most templates
++0x14 u32 marginLeftEmu       horizontal (left = right) page margin
++0x18 u32 marginTopEmu        vertical (top) page margin
++0x1C u32 gapXEmu             gap between adjacent label columns
++0x20 u32 gapYEmu             gap between adjacent label rows
 +0x24 u32 labelWidthEmu       cross-checked against the name text
 +0x28 u32 labelHeightEmu
 +0x2C u32 columns             label grid
@@ -611,10 +732,62 @@ document's slot table is one byte longer than `4·(n+1)`.
                              bytes after the NUL are stale text from a previous longer name
 ```
 
-Evidence: all 35 records are children of the DOCUMENT (0x0015, 35/35); `+0x34` is printable
-in 35/35 and the bytes after the NUL are zero in 33/35 — the two non-zero tails are the
-stale fragment `,1,` in `B5161.PUB`/`B5163.PUB`, the same stale-text idiom as the `0x001F`
-name slot (§11.6);
+**The four margins, in file order.** `+0x14`/`+0x18` are the page margins applied
+symmetrically and `+0x1C`/`+0x20` are the gaps *between* labels, which is what the grid
+arithmetic shows over the 35 records:
+
+```
++0x14 (left)    2·m1 + columns·labelWidth  + (columns−1)·gapX  == pageWidth   33/35 exact
++0x18 (top)     m2   + rows·labelHeight    + (rows−1)·gapY     ≤  pageHeight  35/35
++0x1C (gapX)    contributes (columns−1) times, never 2 times
++0x20 (gapY)    contributes (rows−1) times, never 2 times
+```
+
+The horizontal identity is exact to within 0.0017 in in 33/35 (the two `Avery L7160`
+records are 1 570 EMU short); the vertical one is exact for the 21 letter-size templates
+(`2·m2 + rows·labelHeight + (rows−1)·gapY == pageHeight`) and a top-anchored fit for the
+rest, because the `L716x` templates store a rounded 5/8 in top margin. Worked example
+`B5160.PUB`: `2·0.188 + 3·2.625 + 2·0.125 = 8.501 in` against `pageWidth = 8.5 in`;
+`2·0.5 + 10·1.0 + 9·0 = 11 in` against `pageHeight = 11 in`. If `+0x1C` were a third page
+margin the sum would be 8.376 in and the labels would not tile the sheet, so the
+`(columns−1)`/`(rows−1)` multiplicity is what fixes the reading. [OBSERVED]
+
+**`+0x04` is the sheet orientation.** It is `1` in 33 records and `0` in the two
+`Avery L7169` files (`p97/x/B7169.PUB`, `p97/x/D7169.PUB`), and those two are the only
+records whose grid cannot fit the page in page coordinates: two 5.472 in columns need
+10.94 in against an 8.27 in page width. Transposed they fit exactly —
+`2·0.402 + 2·5.472 = 11.748` against `pageHeight = 11.693`, and
+`2·0.182 + 2·3.902 + 0.1 = 8.268` against `pageWidth = 8.268` — i.e. the label sheet is
+printed landscape. The domain and the action per value are fixed by
+`MSPUB.EXE` 98 VA `0x00474583`: it writes the page/label object's 2-bit field at `+0x58`
+to `1` when the template's `+0x04 != 0` (and `+0x08 != 0`), and to `2` when `+0x04 == 0`
+(`+0x58 = (+0x58 & 0xFFFD) | 1` versus `(+0x58 & 0xFFFE) | 2`). That same 2-bit field is
+what the page-setup dialog drives as a two-state radio group — VA `0x0047574b` calls
+`CheckRadioButton(hwnd, 0x100E, 0x100F, (value != 1) + 0x100E)`, so `1` is the first
+option and everything else the second. `[OBSERVED for the domain {0,1}, the two actions
+and the geometry; INFERENCE that the two options are portrait and landscape]`
+
+**The readers.** All three sites are in `MSPUB.EXE` 98 and take the record from
+`DOCUMENT+0x86` (§11.1):
+
+| VA | What it does with the record |
+|---|---|
+| `0x00473dcb` | copies the **12 consecutive dwords `+0x04 … +0x30`** into one row of the label-template list (`DAT_005fd628`, 0x30-byte rows) and `wcscpy`s the wide-converted name from `+0x34` into the row; the list is then walked to fill the label picker |
+| `0x00473bc1` | multiplies row dwords 10 and 11 (record `+0x2C`/`+0x30`) and prints "N labels per sheet" — 0x30-byte rows, `(&DAT_005fd650 + index·0x30)` = `+0x28`/`+0x2C` of the row |
+| `0x00474583` | applies row dwords 8 and 9 (record `+0x24`/`+0x28`) as the label width/height of the page object (`+0x5A`/`+0x5E`) and row dword 0 (record `+0x04`) as the orientation mode |
+| `0x0049f782` | reads record `+0x2C` and `+0x30` as the grid counts when it builds the print descriptor (`param_2[0x17]`/`param_2[0x18]`) |
+
+The four margins are copied into the picker row by `0x00473dcb` but **no code reads them
+back**: `DAT_005fd628` is referenced only from `0x00473bc1`, `0x00473dcb`, `0x00474583`
+and `0x00474673`, and none of those touches row dwords 4…7 (`+0x14`…`+0x20`); the layout
+that actually places labels uses the *page* record's margins (`0x004f5e26`). The margin
+order above is therefore established by the grid arithmetic over the corpus, not by a
+consumer. [OBSERVED]
+
+Other evidence: all 35 records are children of the DOCUMENT (0x0015, 35/35); `+0x34` is
+printable in 35/35 and the bytes after the NUL are zero in 33/35 — the two non-zero tails
+are the stale fragment `,1,` in `B5161.PUB`/`B5163.PUB`, the same stale-text idiom as the
+`0x001F` name slot (§11.6);
 `+0x24`/`+0x28`/`+0x2C`/`+0x30` were cross-checked against the dimensions and grid embedded
 in the name: height matches 35/35 **inches**, width 33/35 (the two `Avery 5660` documents
 state `2 5/6"` in the name while the field and the real label are 2 5/8"), columns×rows in
@@ -622,8 +795,7 @@ state `2 5/6"` in the name while the field and the real label are 2 5/8"), colum
 (3,3)×2, (2,10)×2, (4,20)×1, (2,4)×1} — every pair is a real Avery grid. `+0x0C`/`+0x10`
 are the page size and are identical for all records of one installation (`0x7698F0`×
 `0x997AA0` = 8.5×11 in on the PageWiz templates, `0x735B40`×`0xA325A0` = 8.27×11.69 in on
-the `…716x` label files). `[OBSERVED for the dimensions and the grid; INFERENCE for the
-margin order and the `+0x04` flag]`
+the `…716x` label files). [OBSERVED]
 
 ## 11.13 Open
 
@@ -637,10 +809,6 @@ margin order and the `+0x04` flag]`
 | `0x0031` array B (`{u16 id, u16 value}` pairs) | `[UNKNOWN]` semantics; framing proven (1 803/1 803) | correlate the value with the object's page or z-order |
 | `0x0031` fourth instance (342 documents) | `[UNKNOWN]` role — no `0x0032` child, not referenced from `+0x48/+0x56/+0x58` | diff a document before and after adding a user design |
 | `0x0032` non-monotone offset variant | `[UNKNOWN]` — 4 instances in `p97/x/PAGEWIZ/{JAZZY,PLAIN}.PUB` with `offs[0] = 5` | diff a save that adds one object name |
-| `0x003A` arena record tags | `[UNKNOWN]` semantics of the `u32 tag` (`1` ×288, `4` ×1) and of the ordinal payload (0/1/2); framing proven (289/289) | correlate the tag with the design object's type; a design containing a text object other than "Your Email Address" widens the tag set |
-| `0x003A` non-offset slot words | `[UNKNOWN]` — 116 slot words in 45 chunks are `< 4·(n+1)` (values `0x0…0x12`) or `0xFFFF`/`0xFFFFFFFF`; a chained/`free` idiom is `[INFERENCE]` | dump the reader that walks the slots (97 EXE, no VA yet) |
-| `0x003F` margin order and `+0x04` | `[UNKNOWN]` — four EMU margins at `+0x14…+0x20` and a `0/1` word at `+0x04`; only their EMU scale is proven | diff the same template saved with different page margins |
-| `0x004E` 45-byte element interior | `[UNKNOWN]` — element size (45) and count (6) are proven 2/2; the `0xC0E4` words and the leading `u16` values are not decoded | author a third checklist with a different row count |
-| `0x0052` `+0x04` ordinal owner | `[UNKNOWN]` — ordinals run 1…114 and are not chunk ids; `ptrA`/`ptrB` are persisted heap addresses | open `CLRCHK.JSP` and step the `0x0052` reader (98 EXE, no VA yet) |
-| `0x001F` prefix block (`0xFFFF` + id list) | `[UNKNOWN]` semantics — 35 chunks carry it, the entry offsets after it parse (144/144 last-slot == end) | dump the 97 EXE reader for `0x001F` |
-| Publisher 98 font first prefix byte | re-scoped: proven **not** a face property (`Lucida Handwriting`/`Harrington` = `0x00` in `CHEKLIST.JSP`, `0x4D` in `INFOSHET.JSP`); `0xCC`/`0x4D` are per-document entry state | save one P98 document twice, toggling the text that uses `Impact`/`Book Antiqua`, and diff the `0x001E` entry |
+| `0x001F` entry `+0x00` kind | `[UNKNOWN]` — takes `{1 ×137, 2 ×9, 3 ×3, 4 ×2, 6 ×1}` over the 152 entries located by the free-list rule; no switch reads it and it correlates with neither the style index, the name nor the tile set | dump the renderer branch that tests it (`0x004818a0` takes the entry pointer but does not read `+0x00`) |
+| `0x004E` 45-byte element interior | partly closed: the four **line widths in points** are at `+0x14`/`+0x1A`/`+0x20`/`+0x26` (VA `0x004547f1` × `0x319C` EMU/pt) and `+0x0A` is a boolean tested by VA `0x004e279f`; the leading `u16` (`0x40/0x50/0x60/0x70`) and the `0xC0E4` colour words have **no reader** — all four widths are 0 in both instances, so no field of this record is exercised | author a checklist whose cell formats differ (the record is a cell/box format: the same 45-byte struct is the table renderer's per-cell format, 5 of them on the stack at VA `0x0050b7d2`) |
+| `0x0052` `+0x04` ordinal owner | **closed negative**: `+0x04` is a document-wide ascending sequence number (unique, 1…114 over 110 records), not a key and not a chunk id; `ptrA`/`ptrB` are persisted heap addresses. No code reads the chunk (scan scope and VAs in §11.11.1) | — |

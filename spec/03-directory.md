@@ -195,7 +195,7 @@ flags = 0x1440 | (bit3 << 3) | (bit5 << 5) | (bit7 << 7) | (cls << 8)
 | 3 | `0x0008` | varies (2 330) | kept by loader and writer | "registered in auxiliary reference lists": tested by VA `0x00407C1A` before unregistering from three tables **[INFERENCE]** |
 | 5 | `0x0020` | 1 342 records: every instance of `0x1A`, `0x1F`, `0x21`, `0x31`, `0x32`, `0x37`, `0x38`, `0x39` and 12/130 of `0x26`; never on any other marker, never with `cls != 2` | kept | record-class **memory/allocation** flag ("owns a separate payload block") **[INFERENCE]**; no individual setter found |
 | 6 | `0x0040` | **1 in all** | forced 1 by the record writer VA `0x00538727`; set by the save traversal VA `0x0044D3FC`; cleared on pre-existing slots at load (VA `0x0045E143`) | "persisted / live record" |
-| 7 | `0x0080` | varies (3 233) | kept | one boolean; setter VA `0x004502F6` (bit = value), re-written by VA `0x00450083`; no structural correlate **[UNKNOWN]** |
+| 7 | `0x0080` | varies (3 233) | kept | **linked-object attribute**: the record's Mat/OLE object is a *link* rather than an embedded object. Setter VA `0x004502F6` (`f = (v<<7 ^ f) & 0x80 ^ f`, 98: VA `0x004F74DA`); written with `(_MatQueryObjectType(obj) & 2) >> 1` at insert (VA `0x0044BF05` / `0x0045B975`), copied from the source by clone (VA `0x00450083` / `0x00458A09`), cleared when the object is not a link (VA `0x00522DE1`), and stamped on the chunks a pasted/registered record names at payload `+8` (VA `0x00520C17`) or `+6` (VA `0x004D6F5B`, `0x004FACF7`). See §3.6.5 |
 | 8–9 | `0x0300` | varies 0–3 | kept | 2-bit **class/level**: getter VA `0x004010AD`, setter VA `0x0040827E`, "raise to at least n" VA `0x0040CC5F` |
 | 10 | `0x0400` | **1 in all** | kept | constant on disk; new-object constructors set it when the object has a parent (VA `0x0044D909`, VA `0x004628E3`) |
 | 11 | `0x0800` | `0` in all | **forced 0 by writer VA `0x00538727`; cleared at load VA `0x0045E30A`** | "selected": set/cleared by VA `0x00401A5B` **[INFERENCE]** |
@@ -212,7 +212,8 @@ per-record writer (VA `0x00538727`), which forces exactly three bits to fixed va
 bit 6 = 1, bit 11 = 0, bit 15 = 0. The loader stores the disk word unchanged except for
 clearing bit 11 (VA `0x0045E30A`). Everything else — bits 0–5, 7–10 and 12–14 — is
 whatever the manager had at save time; bits 8–9 are a class enum and bits 12–14 a slot
-kind, and the remaining variable bits (3, 5, 7) have no structural correlate (§3.6.3).
+kind, bit 7 is the linked-object attribute (§3.6.5), and the remaining variable bits (3, 5)
+have no structural correlate (§3.6.3).
 
 Only three parts of the word are therefore format-relevant:
 
@@ -263,10 +264,10 @@ Result [OBSERVED]:
   * **is last sibling** — only `bit 8` moves (21 % vs 3 %); still 2 126 non-last records set
     it and 257 last siblings clear it.
   * **owns text runs** — `bit 7` and `bit 9` are set on **all 520** records that own (or are)
-    `0x1A`/`0x1C`, but they are also set on 2713 / 9116 records that do not. The reverse
-    implication is exact: every non-shape, document-level or story-related marker has
-    `bit 7` = 1 or 0 consistently (§3.6.4), so this is a marker-class property, not a
-    per-record one.
+    `0x1A`/`0x1C`, but they are also set on 2713 / 9116 records that do not. `bit 7`'s
+    correlation here is a side effect of its real writer (§3.6.5): the record initialiser
+    stamps it from the marker descriptor, so every marker of the document-level family gets
+    it. `bit 9` is the class bit. Neither is a per-record text marker.
   * **is a page slot** — `bit 5` is never set on a page (0/727), but 1342 non-pages set it;
     pages use nine of the thirteen values, more than any other marker.
 * The class bits (8–9) fail a *stronger* test as well: the corpus cross-tab `cls ×
@@ -310,6 +311,45 @@ Two sub-populations worth naming [OBSERVED]:
   is in both).
 * `0x22` splits into class 3 (457) and class 0 (32). The class-0 instances of a file are a
   contiguous ordinal tail, i.e. one specific paste/import operation created them.
+
+### 3.6.5 Bit 7 — the linked-object attribute (closed)
+
+Bit 7 is not manager bookkeeping: it is the **link flag of the record's Mat/OLE object**,
+i.e. "this object is an OLE *link* (an object whose data lives in an external file) rather
+than an embedded object". `[OBSERVED]` for the code; the corpus population is a union with a
+class default, see below.
+
+The proof is a two-way switch on the same bit, not a correlation:
+
+* VA `0x00438216` builds the OLE verb menu item with
+  `wsprintfA(buf, (&PTR_s__s__Object_0046d4b1)[(type & 2) >> 1], className)`. The table is at
+  VA `0x0046D4B1` and its two entries are `0x0046D4B9 = "%s &Object"` and
+  `0x0046D4C8 = "%s L&ink"`. So **bit 1 of `_MatQueryObjectType`'s result is exactly "the
+  object is a link"**, and it selects which of the two strings is shown.
+* The status-word writer takes its value from that same bit: at VA `0x0044BF05` (95 insert /
+  OLE-paste path) the code does `_MatQueryObjectType_8(obj,&t)` and then, when `t & 2`,
+  `FUN_004502F6(chunkId, 1)`. The setter (VA `0x004502F6`) is a pure bit-7 write:
+  `f = (v << 7 ^ f) & 0x80 ^ f`. The Publisher 98 build has the identical pair:
+  `_MatQueryObjectType_8` → `FUN_004F74DA(chunkId, 1)` in VA `0x0045B975`, and
+  `FUN_004F74DA` (VA `0x004F74DA`) writes `f = f & 0xFF7F | (v & 1) << 7`.
+* The bit is *cleared* from the same test: VA `0x00522DE1` reads bit 7, re-queries the
+  object type, and when the query fails or `type & 2 == 0` does `*f &= 0xFF7F`.
+* Clone carries it through verbatim: VA `0x00450083` (95) / `0x00458A09` (98) call
+  `FUN_004502F6(newId, (sourceFlags & 0x80) >> 7)` after `_MatCloneObject`.
+* Two further writers stamp the bit on the chunks a record *names*, not on the record
+  itself: VA `0x00520C17` (OLE paste) sets it on the chunk id held at payload `+8` of the
+  pasted record, and VA `0x004D6F5B` / `0x004FACF7` (98) do the same for the chunk id at
+  payload `+6` of the record being opened. Both pair the write with `FUN_004F7416(id,1)`,
+  the "in use" state of bits 0–1.
+
+`[OBSERVED]` for the two writers above; `[INFERENCE]` for the class default that follows.
+The record initialiser VA `0x00407C7D` maps a marker-descriptor bit 10 (`0x400`) into status
+bit 7 (`f = ((desc & 0x400) >> 10 << 7 ^ f) & 0x80 ^ f`), so a marker family whose descriptor
+carries `0x400` is born with bit 7 = 1 — which is the most economical explanation for the
+whole document-level family (`0x15`, `0x16`, `0x1A`, `0x1C`, `0x1E`, `0x23`–`0x2E`,
+`0x31`–`0x39`) carrying it in 130/130 files while shapes `0x00`–`0x0F` never do and pages
+`0x14` carry it on 274 of 727. Either way, a reader must **carry bit 7 through unchanged** and
+must not read a document property out of it.
 
 ## 3.7 The 10 zero bytes after the records
 

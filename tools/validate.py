@@ -72,7 +72,25 @@ CHECKS = [
     "image_record_base",
     "header_document_id", "header_post_header_offset", "header_page_id_resolves",
     "directory_id_hwm_is_max_id", "directory_flags_writer_bits",
+    "freelist_0x1f_chain", "freelist_0x3a_chain", "rec_0x3a_arena",
 ]
+
+
+def freelist_chain(slots, head, term):
+    """spec/11 §11.3.1: the words of an offset table that are not byte offsets are the
+    links of one free list.  A slot is live when its value is >= n+1 (a byte offset,
+    always >= the table size), free when it is a slot index; the list starts at the head
+    and ends at `term` (0xFFFF / 0xFFFFFFFF).  Return (ok, free_indices)."""
+    n = len(slots) - 1
+    free = set(i for i, v in enumerate(slots) if i < n and (v < n + 1 or v == term))
+    seen = []
+    cur = head
+    while cur != term:
+        if cur > n or cur in seen:
+            return False, free
+        seen.append(cur)
+        cur = slots[cur]
+    return set(seen) == free, free
 
 
 def check_file(path: str, stats: collections.Counter, failures: list):

@@ -351,6 +351,52 @@ ordinal in the directory record's `id` field** — the same value `FUN_4041a94b`
 both (`(short)element_index`). `CHEKLIST.JSP` has `TOKN` id 0 and `TCD ` ids 1 and 2, and
 each `id + 1` is a member of that document's `MCLD` ordinal list (§13.11).
 
+### 13.10.1 `TCD ` — the table-cell boundary array (closed)
+
+`TCD ` has `elemSize = 0`, so the `count+1` `u32` table is the payload itself and the values
+are **character offsets into the text object's own character stream**, one per table-cell
+boundary. The unit is a *character*, not a stream byte: `TEXT` is UTF-16LE, and the earlier
+"odd value" objection to a text-offset reading assumed bytes. `[OBSERVED]`
+
+Corpus identity on the only two chunks in the corpus (`CHEKLIST.JSP`, text objects 1 and 2;
+the object base is the character index in `TEXT` where the object's own text begins, found by
+aligning every value against the object's `CR` positions):
+
+| chunk | count | values | object base in `TEXT` | last value | object length |
+|---|---|---|---|---|---|
+| `TCD ` id 1 | 25 | 26 ascending, `0xA9 … 0x3F7` | 58 | `0x3F7` = 1 015 | 1 073 − 58 = 1 015 |
+| `TCD ` id 2 | 16 | 17 ascending, `0xA8 … 0x2C1` | 1 073 | `0x2C1` = 705 | 1 778 − 1 073 = 705 |
+
+| identity | result |
+|---|---|
+| `values[count] ==` the text object's length | 2/2 (the object end is the sentinel) |
+| every other value is the position of a `CR` (0x0D) in the object's text | 41/41 |
+| values strictly ascending, all `<` the sentinel | 2/2 |
+| `values` ⊆ the object's `CR` positions | 2/2 |
+
+The array is a **subset** of the object's paragraph marks: `CHEKLIST.JSP` object 1 has 30
+`CR`s but only 25 boundary values — the four omitted marks (439, 447, 454, 456) are the
+interior paragraphs of a multi-paragraph cell ("Service bureau" / "Printer"), while 452 —
+the cell's *last* paragraph ("Both") — is kept. So a value is the end of a **table cell**
+(the `CR` of its last paragraph), not of every paragraph. `[OBSERVED]`
+
+Code, in `QS98.DLL`:
+
+* **Reader** `FUN_404223b4` (VA 0x404223b4) loads the array into text-object slot `0x17`
+  (mode `-1`, §13.10); the loader `FUN_4042278c` (VA 0x4042278c) does this per text object
+  with the map index as the chunk id.
+* **Consumer** `FUN_404334de` (VA 0x404334de): `FUN_404026f1(slot17, pos)` maps a text
+  position to the cell ordinal, the ordinal is handed to the text engine
+  (`FUN_4040fc58`), and the entry is rewritten to the current position
+  (`FUN_40409a02`). So the array is indexed by *cell* and its values are *positions*.
+* **Maintenance** `FUN_4040d0a8` (VA 0x4040d0a8) adds an edit delta to every value `>=` the
+  edit position (insert/delete shifts the boundaries), and `FUN_4040f31b` (VA 0x4040f31b) is
+  the generic insert/update it shares with slots `0x12`/`0x13`/`0x14`
+  (`FUN_40412bd3`, VA 0x40412bd3, shifts all four in lockstep when text is inserted).
+
+Reading rule: cell `i` is `[values[i], values[i+1])` in the text object's character
+coordinates, `count` is the number of cells, and `values[count]` is the object length.
+
 ## 13.11 `MCLD` — document-level object records
 
 ```
@@ -415,26 +461,45 @@ of it. `[OBSERVED]` the linkage has two halves, and the stream half is now pinne
 chunk's `start` (14/14 elements, §13.10). A reader that has the shape's text-object
 ordinal can therefore reach the paragraph/character runs without any other structure.
 
-**2. Shape → text object.** The Quill per-object chunks (`TOKN`, `TCD `) carry the 0-based
-text-object ordinal in the directory record `id`, and `MCLD` lists the same ordinals
-1-based (113 objects over the corpus, §13.11). In `CHEKLIST.JSP` the `TCD ` ids 1 and 2
-and the `TOKN` id 0 all satisfy `id + 1 ∈ MCLD.ids`. `[OBSERVED]`
+**2. Shape → text object.** Two different numbers are in play and the earlier revision
+conflated them. `[OBSERVED]`
 
-What is now **excluded**, with counts over the three text-bearing documents:
+* the **key** of a text object is `MCLD.ids[i]`. `FUN_40422ca1` (VA 0x40422ca1) parses the
+  `MCLD` chunk as `u32 tag; u32 count; u32 ids[count]` and stores `ids[]` into the document's
+  key array at `+4`; `FUN_4040ec54` (VA 0x4040ec54) returns `ids[index]` for an index;
+  `FUN_4041638b` (VA 0x4041638b) creates the text object and inserts it into the map at
+  `+0x2c` under that key.
+* the **directory `id`** of a per-object chunk (`TOKN`, `BMKT`, `TCD `, `EOBJ`) is the map
+  **index**, not the key: the writer `FUN_4041a94b` (VA 0x4041a94b) passes
+  `(short)element_index` — the loop counter over the map — and the loader `FUN_4042278c`
+  (VA 0x4042278c) looks the chunk up with the same index.
+
+So `CHEKLIST.JSP`'s `TOKN` id 0 and `TCD ` ids 1 and 2 name the 1st, 2nd and 3rd entries of
+`MCLD.ids` = `{1, 2, 3}`, which is why `id + 1 ∈ MCLD.ids` held; that relation is a
+coincidence of the two numbering schemes, not the format rule.
+
+What is **excluded**, with counts over the three text-bearing documents:
 
 | candidate | result |
 |---|---|
 | `FDPP`/`FDPC` chunk ids are shape ids | no — they run 0…5 / 0…2 while the `Contents` shape chunks are ids `0x100`+, 3/3 docs |
-| `SYID` ids are shape chunk ids | no — `SYID` values are ≤ `0x7B` (`CHEKLIST.JSP` 1–17, `CLRCHK.JSP` 5–123 with high-water 127) and no `Contents` chunk id is below `0x100` |
-| `SYID` ids are text-object ordinals | no — the sets differ in 2 of 3 documents: `CHEKLIST.JSP` `SYID` = `{1…14, 17}` vs `MCLD.ids` = `{1,2,3,5,7,…,20}` (4 and 6 are `SYID`-only, `15,16,18,19,20` are `MCLD`-only); `CLRCHK.JSP` both have 94 ids but 15 are `SYID`-only (`9,10,11,19,20,21,26,28,115–120,123`) and 15 are `MCLD`-only (`3,4,6,14,15,16,22,24,34–37,49,51,74`); `INFOSHET.JSP` coincides trivially (one id, `1`) |
+| `SYID` ids are shape chunk ids | no — `SYID` values are ≤ `0x7B` and no `Contents` chunk id is below `0x100` |
+| `SYID` ids are text-object ordinals | no — the sets differ in 2 of 3 documents (see the earlier revision's counts) |
+| `SYID` ids are shape *style* ids | **yes, closed** — the shape record carries its style id at `+0x58` (`u16`, `0` = no style): `CLRCHK.JSP`'s 95 `0x08` shapes hold exactly the document's 94 `SYID` ids, each once, plus one `0`; `CHEKLIST.JSP` 13 of 14 shapes and `INFOSHET.JSP` 2 of 3 land in `SYID`; `MSPUB.PUB` has an empty `SYID` and its one shape holds `0` |
+| the `u32` at shape `+0x14` is the ordinal | no — the ten chunks carrying the `2, 6, 10, 14, …` ladder are the **pages** (`type 0x14`, parent `0x100`), not shapes; the ladder is a page index with a 2-bit tag (§17.3) |
+| any `Contents` field carries the `MCLD` key | no — every chunk of every marker in `CHEKLIST.JSP` and `CLRCHK.JSP` was scanned at every byte offset for a `u16` and a `u32` whose value set equals `MCLD.ids`; 0 hits. The nearest field, shape `+0x58`, is the style id (row above) |
 
-`[UNKNOWN]` the remaining half: which field of the `Contents` shape record holds the
-text-object ordinal. Candidate measured in `CHEKLIST.JSP`: the 10 top-level shape chunks
-(type `0x14`, parent `0x100`) each carry a u32 at chunk `+0x14` of `2, 6, 10, 14, 18, 22,
-26, 30, 34, 38` — a strictly monotone `4k+2` ladder, i.e. an index with a 2-bit tag, not
-the object ordinal. Experiment that would settle it: take a document with exactly two
-text frames, swap their text, and diff every `Contents` shape record against the unchanged
-`MCLD`/`TOKN` ids — the field that moves is the ordinal.
+`[UNKNOWN]` the remaining half: the `Contents` side of the key. The blocking fact is now
+precise: the key is *assigned by the text engine* — `FUN_4041823e` (VA 0x4041823e) allocates
+`max+1` and returns it to the caller — and the only persisted copy is `MCLD.ids`. No chunk
+payload in the 98 corpus holds that set, and the one non-chunk region of `Contents`
+(`[u32@0x12, u32@0x16)`, §13.14) is the 46-byte **empty** text store in all five 98
+documents (`textBase == textEnd == directory offset`, all four id ranges 0, all four record
+pointers 0). So either the pairing is positional (the Publisher enumerates its text frames in
+the same order as `MCLD.ids`, which is the order `FUN_40422e4d`, VA 0x40422e4d, rebuilds the
+map in) or the key is written into a structure outside `Contents`. The discriminating
+observation is an authored document with two text frames whose `MCLD` ids are non-consecutive
+and whose directory order is reversed relative to those ids.
 
 ## 13.14 Publisher 95 / 97 — the in-`Contents` text layer
 
@@ -622,10 +687,9 @@ base and is reported by the scanner rule, not by a constant offset).
 
 ## 13.16 Open
 
-| Item | Status | Experiment |
+| Item | Status | Discriminating observation |
 |---|---|---|
-| text → shape linkage, the `Contents` half | `[UNKNOWN]` — the stream half is closed (§13.13): `BTEP`/`BTEC` reach the run tables by chunk offset and `TOKN`/`TCD `/`MCLD` agree on the text-object ordinals. What is missing is one fact: which field of the `Contents` shape record stores that ordinal. Excluded so far: `SYID` ids (2 of 3 documents differ from the ordinal set), `FDPP`/`FDPC` ids, and the shape-chunk `id` (always ≥ `0x100`); the only monotone per-shape candidate is the u32 at shape-chunk `+0x14` (`4k+2` ladder in `CHEKLIST.JSP`) | author a document with two text frames whose contents are swapped, save, and diff every `Contents` shape record against the unchanged `MCLD`/`TOKN` ids — the field that moves is the ordinal |
-| `TCD ` offset-array meaning | `[UNKNOWN]` — the framing is closed (§13.10): the chunk is `12 + 4*(count+1)` bytes with `elemSize = 0`, i.e. the offset table *is* the payload (2/2), it is loaded per text object into object slot `0x17` (`FUN_4042278c`) and maintained as an ordered array by `FUN_4040f31b` (VA 0x4040f31b) in lockstep with the object's other per-position arrays. Blocking fact: what the `count+1` ascending u32s index. Excluded: text byte offsets (13 of the 26 values in `CHEKLIST.JSP` `TCD ` id 1 are odd, and a UTF-16LE character boundary is always even) and chunk-relative offsets (`0x3F7` is larger than the 116-byte chunk) | author a 2×2 table whose cells contain text of distinct lengths, save, and test whether the gaps between the values equal those lengths (§13.10) |
+| text → shape linkage, the `Contents` half | `[UNKNOWN]` — the stream half is closed and the two numbers are now separated (§13.13): the text-object **key** is `MCLD.ids[i]` and the per-object chunk **id** is the map index. Blocking fact: no `Contents` chunk payload in the 98 corpus carries the `MCLD` key set (full `u16`/`u32` scan of every chunk of every marker in `CHEKLIST.JSP` and `CLRCHK.JSP`, 0 hits), and the only non-chunk region of `Contents` (`[u32@0x12, u32@0x16)`) is the 46-byte **empty** text store in all five 98 documents. Excluded: `SYID` ids (= the shape style id at shape `+0x58`, closed), `FDPP`/`FDPC` ids, the shape-chunk `id` (≥ `0x100`), and the `4k+2` ladder (it is a **page** field, not a shape field) | an authored document whose two text frames have non-consecutive `MCLD` ids and whose directory order is the reverse of the `MCLD` order: if the pairing is positional the two frames exchange text; if a field carries the key it moves |
 
 ## 13.17 The property-field table in `QS98.DLL` (proven)
 
