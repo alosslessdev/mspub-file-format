@@ -314,17 +314,20 @@ refuted: no entry carries an id list (the id-looking run in `BRCATALG.PUB` is th
 chain, §11.3.1) and the word takes five values. All 152 entries located this way have a
 printable NUL-terminated name at `+0x02` (0 exceptions), which is what validates the
 parse. The entry prefix is **always two bytes**; it is the offset *slots* that are 2 or 4
-bytes wide. Measured over the whole corpus (unique entry offsets per chunk): **144
-populated chunks, 139 name-carrying entries, 42 distinct names, 1 112 tile slots, 1 112/1
-112 tiles begin `01 00 09 00 00 03`** (a `METAHEADER`,
-type 1, header 9 words, version `0x0300`). The eight slots are the border sides
+bytes wide. Census under the free-list rule (unique entry offsets per chunk): **152
+entries in 128 chunks, 45 distinct names, 1 216 tile slots, 1 216/1 216 tiles begin
+`01 00 09 00 00 03`** (a `METAHEADER`, type 1, header 9 words, version `0x0300`). This
+supersedes the earlier 144 / 139 / 42 / 1 112 figures, which were counted without
+skipping the free chain and therefore both over-counted "populated" chunks (a free link
+reads as a tiny offset) and under-counted entries (a link in the first slot hides the real
+first entry). The eight slots are the border sides
 **clockwise from the top-left**: TL, top, TR, right, BR, bottom, BL, left; the offsets are
 **not** monotonic and the same tile is often shared by two slots, so a reader must take
 each tile's extent from its own WMF header, never from the gap to the next offset.
 [OBSERVED]
 
 Worked example — `p95/x/PAGEWIZ/AWARD.PUB` `0x001F` id `0x0101`, size 3 090, W16 with
-`n = 4`: slots `(2, 0, 0xFFFF, 0x0A, 0xC04)`, entry 0 at `+0x18` (`entryTag` 1, name
+`n = 4`: slots `(2, 0, 0xFFFF, 0x0A, 0xC04)`, entry 0 at `+0x18` (`entryKind` 1, name
 `Waveline`), record at `+0x44` = `400, 400, 400` twips, tile offsets
 `(66, 476, 816, 1 226, 1 566, 1 976, 2 316, 2 726)`, first tile at `+0x5A`. The same
 document in `p97deluxe/x/PageWiz/` is the W32 form: size 3 108, `n = 4`, slots

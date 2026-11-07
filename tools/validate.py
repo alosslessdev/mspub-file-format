@@ -319,8 +319,28 @@ def check_file(path: str, stats: collections.Counter, failures: list):
         if (n != n2 or end != c.size - 0x16 or c.size < 0x16 + 4 * (n + 1)
                 or struct.unpack_from("<H", d, 0x10)[0] != 1):
             fail("rec_0x3a_container", "id=%#06x size=%d n=%d" % (c.id, c.size, n))
-        elif struct.unpack_from("<I", d, 0x16 + 4 * n)[0] != end:
+            continue
+        if struct.unpack_from("<I", d, 0x16 + 4 * n)[0] != end:
             fail("rec_0x3a_container", "id=%#06x last slot != end" % c.id)
+            continue
+        # §11.3.1: the head at +0x12 threads one chain through every non-offset slot.
+        slots = list(struct.unpack_from("<%dI" % (n + 1), d, 0x16))
+        head = struct.unpack_from("<I", d, 0x12)[0]
+        ok, free = freelist_chain(slots, head, 0xFFFFFFFF)
+        if not ok:
+            fail("freelist_0x3a_chain", "id=%#06x n=%d head=%#x free=%d"
+                 % (c.id, n, head, len(free)))
+        # §11.12: every live slot target is a record {u16 0, u32 len, u32 type, payload}.
+        for k, s in enumerate(slots[:-1]):
+            if k in free or s == 0xFFFFFFFF:
+                continue
+            if s < n + 1 or 0x16 + s + 10 > c.size:
+                fail("rec_0x3a_arena", "id=%#06x slot%d off=%#x out of range" % (c.id, k, s))
+                continue
+            zero, length, typ = struct.unpack_from("<HII", d, 0x16 + s)
+            if zero != 0 or length < 10 or 0x16 + s + length > c.size or typ not in (1, 4):
+                fail("rec_0x3a_arena", "id=%#06x slot%d len=%d type=%d"
+                     % (c.id, k, length, typ))
 
     for c in doc.of_type(0x3B):
         if (c.size != 26 or struct.unpack_from("<I", c.data, 4)[0] != 0
@@ -328,9 +348,29 @@ def check_file(path: str, stats: collections.Counter, failures: list):
                 or struct.unpack_from("<I", c.data, 0x16)[0] != 4):
             fail("rec_0x3b_empty", "id=%#06x size=%d" % (c.id, c.size))
 
+    # ---- spec/11 §11.12: 0x003F is a fixed 180-byte label-sheet template.  +0x02 is the
+    # (A,B) stamp with A = the record size; +0x04 is the sheet orientation (1 portrait,
+    # 0 landscape, in which case the label grid runs in page coordinates transposed);
+    # +0x14/+0x18 are the symmetric page margins and +0x1C/+0x20 the gaps BETWEEN labels,
+    # so 2*m1 + cols*lw + (cols-1)*m3 must fit the page width and
+    # m2 + rows*lh + (rows-1)*m4 the page height.
     for c in doc.of_type(0x3F):
         if c.size != 180 or struct.unpack_from("<I", c.data, 8)[0] != 1:
             fail("rec_0x3f_label", "id=%#06x size=%d" % (c.id, c.size))
+            continue
+        if struct.unpack_from("<H", c.data, 2)[0] != 0xB4B4:
+            fail("rec_0x3f_label", "id=%#06x stamp != 0xB4B4" % c.id)
+        flag, _, pw, ph, m1, m2, m3, m4, lw, lh, cols, rows = struct.unpack_from(
+            "<12I", c.data, 4)
+        if flag not in (0, 1):
+            fail("rec_0x3f_label", "id=%#06x orientation=%d" % (c.id, flag))
+            continue
+        W, H = (pw, ph) if flag else (ph, pw)
+        tol = 2000 if flag else 60000
+        if 2 * m1 + cols * lw + (cols - 1) * m3 > W + tol:
+            fail("rec_0x3f_label", "id=%#06x label row overflows the page width" % c.id)
+        if m2 + rows * lh + (rows - 1) * m4 > H + 3000:
+            fail("rec_0x3f_label", "id=%#06x label column overflows the page height" % c.id)
 
     # ---- spec/11 §11.11.2: 0x004E/0x004F/0x0050 share a header whose +0x0E word is
     # the element size, so size == 0x14 + elementSize*n.
@@ -388,6 +428,22 @@ def check_file(path: str, stats: collections.Counter, failures: list):
         if offs[-1] != end:
             fail("borderart_0x1f_container", "id=%#06x last slot %#x != end %#x"
                  % (c.id, offs[-1], end))
+            continue
+        # §11.3.1: the head at +0x0C (W16) / +0x12 (W32) threads one chain through every
+        # non-offset slot; the terminator is 0xFFFF / 0xFFFFFFFF.
+        term = 0xFFFF if w == 2 else 0xFFFFFFFF
+        head = struct.unpack_from("<H" if w == 2 else "<I", d, 0x0C if w == 2 else 0x12)[0]
+        ok, free = freelist_chain(list(offs), head, term)
+        if not ok:
+            fail("freelist_0x1f_chain", "id=%#06x n=%d head=%#x free=%d"
+                 % (c.id, n, head, len(free)))
+        for k in range(n + 1):
+            if k in free:
+                continue
+            if offs[k] > end:
+                fail("freelist_0x1f_chain", "id=%#06x slot%d off=%#x past end %#x"
+                     % (c.id, k, offs[k], end))
+                break
 
     # ---- spec/8 §8.7.1: the counted tail of 0x0002/0x0003 starts at the record's B
     # byte in both generations (95/97 B=116, 98 B=140), elements 8 bytes.

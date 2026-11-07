@@ -435,9 +435,10 @@ The Publisher 97 binary carries the same mechanism at the corresponding VAs: `0x
 ### 6.7.6 The `+0x16` flag word
 
 `+0x16` is a **bit field**, not a 16-member enum. The 17 values the corpus contains are the
-combinations of eight independent bits. The bits are not all of one kind: three of them
-(1, 5, 6) are runtime-only and never reach the file, four (8–11) appear in the file but have
-no writer in the Publisher 95 binary, and the rest are written by the 95 format code.
+combinations of eight independent bits. The bits are not all of one kind: 1, 5 and 6 are
+runtime-only and never reach the file; 0, 3 and 4 are written by the Publisher 95 format
+code; 8–11 appear in the file but have no writer in the Publisher 95 binary; 12 and 13 are
+read by the 97/98 binaries and never set in this corpus.
 
 | Bit | Mask | Records | Written at | Read at | Meaning |
 |---|---|---|---|---|---|
@@ -453,7 +454,7 @@ no writer in the Publisher 95 binary, and the rest are written by the 95 format 
 | 9 | `0x0200` | 486 | — | `0x005A2901`, `0x00571C62` (98) | group-child bit (§ below) |
 | 10 | `0x0400` | 2 | — | `0x0044041F` (97) | pen colour taken from `+0x23` |
 | 11 | `0x0800` | 289 | `0x004217A7`, `0x0042453B` | `0x004217A7`, `0x0042453B`, `0x0042D6A8` (97) | group-child bit (§ below) |
-| 12 | `0x1000` | 0 | — | `0x00480E84`, `0x00483EB6` (98) | never set in the corpus |
+| 12 | `0x1000` | 0 | — | `0x00480E84`, `0x00483EB6` (98) | dialog option: the second of a two-way choice |
 | 13 | `0x2000` | 0 | — | `0x0045140D` (97), `0x004F5E26` (98) | the width bytes are **point counts**, not width codes |
 
 `[OBSERVED]` — counts over 22 354 records of markers `0x0000`–`0x0007` in the four corpora.
@@ -474,7 +475,9 @@ chunk record, and no store that *sets* it: the only stores that touch bits 0–2
 `bit 2 := bit 1` sync at `0x00416C82` (95) and its 98 twins `0x00492A72`/`0x00502369`, which
 write `flags & 0xFFFB | (flags & 2) << 1`. The other modules were checked and contain no
 reference to the flag word at all: PUBDLG.DLL 95 (57 functions), PUBOLE32.DLL 95 (207,
-`C:\pwrk\decomp-ole95`) and QS98.DLL (2 103, `notes/p98q/decomp_quill`). `[OBSERVED]`
+`C:\pwrk\decomp-ole95`), MSPUBW32.DLL 95 (608, `C:\pwrk\wiz95` — only five functions touch
+any `+0x16` and all five are rectangle/metafile arithmetic) and QS98.DLL (2 103,
+`notes/p98q/decomp_quill`). `[OBSERVED]`
 
 What the writer does is therefore the whole story: the sync routine walks the children of
 the current selection and copies bit 1 into bit 2; bit 1's only setter, `0x004ADAD0`, sets
@@ -506,13 +509,16 @@ them to the marker-6 property conversion (`0x004797CD`). `[OBSERVED]` for the wr
 case labels and the actions; `[INFERENCE]` for the reading "the record is a framed picture
 rather than a plain polygon".
 
-**Bits 5 and 6 are computed at draw time.** Bit 6 is the *closed loop* flag of the outline
+**Bits 5 and 6 are read but never written.** Bit 6 is the *closed loop* flag of the outline
 smoother: `0x004F269A` computes the point count as `n − (bit 6 ? 1 : 0)` and, when bit 6 is
 set, seeds the walk with point 0 as the predecessor of point 0; `0x004F2554` uses the same
-flag to decide whether the neighbour of the last point is the first. Bit 5 selects the
-outline source: `0x00420CAE` takes the record's counted tail (`u16@(B + chunk)`, §6.4) when
-bit 5 is clear and the smoothed outline when it is set. Neither bit is ever written to the
-file (0/22 354).
+flag to decide whether the neighbour of the last point is the first; `0x004675F8` branches
+on it to pick the frame outline. Bit 5 selects the outline source: `0x00420CAE` takes the
+record's counted tail (`u16@(B + chunk)`, §6.4) when bit 5 is clear and the smoothed
+outline when it is set. No store sets either bit in MSPUB.EXE 95/97/98, and no corpus record
+carries them (0/22 354), so both branches are unreachable in this family: the code is
+generic, the versions never select it. `[OBSERVED]` for the switches and the absence; a
+reader that sees either bit set should honour it as documented here.
 
 **Bits 8–13 are *interpretation* flags for the record's own values.** Each one is consumed by
 a switch that chooses between "read the byte as an index into a table" and "read the byte as
