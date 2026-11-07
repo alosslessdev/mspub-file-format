@@ -118,10 +118,12 @@ PAGE record. The first page is identified only by DOCUMENT `+0x08`. The first pa
 
 ## 5.5 `pageFlag08`
 
-**Never read by any code path.** It is a write-only / pass-through field: the loader copies
-the record into the chunk object verbatim, and the serializer copies the record bytes out
-verbatim (`FUN_00538D18` @ `0x00538D18` → `FUN_0052FD3E` @ `0x0052FD3E`; the chunk-to-chunk
-copy is `FUN_0052FDC8` @ `0x0052FDC8`). No routine computes it and no routine consumes it.
+**Never read by any code path.** It is a write-only / pass-through field: the load path
+decompresses the file record into the chunk object's buffer verbatim (`FUN_00444C1D` @
+`0x00444C1D`, filling the buffer returned by `FUN_00401148` @ `0x00401148`), and the save
+path emits record bytes without interpreting them (`FUN_0052FDC8` @ `0x0052FDC8` →
+`FUN_0052FD3E` @ `0x0052FD3E`; the stream-to-stream record copy is `FUN_00538D18` @
+`0x00538D18`). No routine computes `+0x08` and no routine consumes it.
 
 Scan scope (closed negative): every function in the Publisher 95 decompilation
 (`C:\pwrk\decomp95`, 3 293 functions), the Publisher 97 tree (`notes/p98/decomp97`, chunk
@@ -141,11 +143,11 @@ table base `DAT_005D08B4`) and the Publisher 98 tree (`notes/p98/decomp98`, base
   record. [OBSERVED, binary]
 
 What the writer put there is a small **4-bit per-page authoring field** — `1` ×3 and `2` ×2
-on the five greeting-card last pages of P95, but `1…8` in the P97 corpus
-(`CLASSIC` 7, `JAZZY` 8, `MODERN` 3, `PLAIN` 6, plus `3/5/6` on the `_cd` variants), and all
-zero in P98. Its bit meaning is not recoverable from the binaries because no consumer exists;
-it is preserved verbatim so a reader must carry it through unchanged. [OBSERVED for the
-values; [UNKNOWN] for the semantics]
+on the five greeting-card last pages of P95, but `2, 3, 5, 6, 7, 8` across the P97 corpus
+(`CLASSIC` 7, `JAZZY` 8, `MODERN` 3, `PLAIN` 6, `class_cd`/`modrn_cd` 3, `jazzy_cd` 2,
+`plain_cd` 5), and all zero in P98. Its bit meaning is not recoverable from the binaries
+because no consumer exists; it is preserved verbatim so a reader must carry it through
+unchanged. [OBSERVED for the values; [UNKNOWN] for the semantics]
 
 ## 5.6 Child id list
 
