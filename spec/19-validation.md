@@ -135,6 +135,6 @@ sufficient. Binary evidence is only needed to close the open items in §19.3.
 ## 19.5 Evidence policy
 
 Every claim in this specification carries `[OBSERVED]`, `[INFERENCE]` or
-`[UNKNOWN]` (see [CONTRIBUTING](../CONTRIBUTING.md)). A claim may only be
+an **UNKNOWN** tag (see [CONTRIBUTING](../CONTRIBUTING.md)). A claim may only be
 promoted to `[OBSERVED]` together with an invariant in §19.2 or a citation of a
 specific byte offset / binary virtual address.

@@ -332,11 +332,29 @@ Three errors in the previous revision of this chapter are corrected here:
 | `0x0300` | 16 |
 | `0x0000` | 17 |
 
-Both are written as the constant `0x0500` by the new-document initialiser (VA `0x00535FCC`),
-so `+0x1E` is subsequently *modified* by something the user does in the document. Bit 8 is set
-in three of the four values, bit 9 in two; the word therefore behaves like a two-bit state pair
-with a fixed `0x0400` part. Semantics [UNKNOWN]; candidate: "document has been modified / has
-print settings". The experiment that would close it is a save-after-edit diff.
+**Both words are write-only residue: no code path in `MSPUB.EXE` 95 ever reads them.** The
+`0x0400` bit is part of the constant the builder assigns, not a state the application tracks.
+
+* **Where the value comes from.** The header builder (VA `0x00535FCC`) stores the literal
+  `0x0500` in `+0x20` unconditionally. For `+0x1E` it has two branches: when the freshly built
+  document chunk's `+0x6A` word is `0`, it stores the same literal `0x0500` (VA `0x00535FCC`,
+  store to the header copy at frame `+0x1E`); otherwise it copies two bytes out of a 34-byte
+  record that VA `0x00444DB5` reads from the stream named by that word — the record's bytes
+  `0x1E`/`0x1F` become the low/high byte of `+0x1E`. In other words the word is *inherited*
+  from the document the new file was built from and never computed: `0x0100`, `0x0300` and
+  `0x0000` are simply what the source header carried.
+* **Why nothing reads it.** The open/validate function VA `0x0045F6B3` reads the 34-byte header
+  into a stack buffer at VA `0x0045F797` and consumes only `+0x00` (magic `0xACE8`/`0xACE7`),
+  `+0x04` (format version), `+0x08` (declared length), `+0x0C` (tag `0x7D`), `+0x0E` (document
+  chunk id), `+0x10`, `+0x12`, `+0x14`, `+0x16`. The only callee that receives the whole buffer,
+  VA `0x00523797`, reads just `+0x04`, `+0x0C`, `+0x0E` and `+0x1A`. The buffer is a stack local,
+  so no other function can see it. Scan scope: all 3 825 functions of `MSPUB.EXE` 95, plus the
+  `PUBOLE32.DLL` container layer that performs the stream I/O — the only stores to these two
+  words are the builder's.
+
+So the four observed values are an artefact of the source document, and the fixed `0x0400` part
+is part of the builder's literal, not a flag the reader acts on. This retracts the earlier
+"modified by the user after creation" reading.
 
 ## 2.7 Worked example
 

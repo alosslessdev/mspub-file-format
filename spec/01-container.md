@@ -118,18 +118,49 @@ substorages reuse the same descriptor shape (§1.6).
 
 ## 1.5 `\x03Internal`
 
-A 12- or 16-byte Publisher-private stream. Observed as two `u16` followed by two `u32`:
+**The root stream is exactly 12 bytes in 493/493 corpus files** (P95 130, P97 108, P97 Deluxe
+250, P98 5). The 16-byte form exists only inside `Object N` substorages (§1.6). The layout is a
+6-byte fixed prefix, a 32-bit serial and a 16-bit payload length:
 
-```
-0000 0100 0000 0100 0000 0000            (12 bytes, 50 files)
-0000 0100 0000 0000 0100 0000 0000 0000  (16 bytes, 116 files)
-0000 0100 0000 0500 0000 0000            (12 bytes: 5 in u16 #4)
-```
+| Offset | Width | Meaning |
+|---|---|---|
+| `0x00` | u32 | constant `0x00010000` |
+| `0x04` | u16 | `0` (reserved) |
+| `0x06` | u32 | **object serial** — the document's `Object N` high-water mark |
+| `0x0A` | u16 | byte length of the optional payload that follows the 12-byte header; `0` in 493/493 |
 
-Field 1 is always `0x0000` and field 2 always `0x0001`. The remaining words take a small set of
-values (0, 1, 2, 3, 4, 5). [OBSERVED] Semantics [UNKNOWN] — candidates are a document revision
-counter and an embedded-object count; the discriminating experiment is to edit a template in
-Publisher 95, save, and see which word changes.
+Example: `0000 0100 0000 0100 0000 0000` = constant, zero word, serial `1`, no payload; the
+`… 0500 0000 0000` form is serial `5`.
+
+[OBSERVED, `PUBOLE32.DLL` — the container layer `MSPUB.EXE` drives through
+`_MatLReadFromFh`/`_MatLWriteToFh`]
+
+* **Writer** VA `0x600174C0`, third argument non-zero (reached as `(fh, document, 1)` from
+  `_MatSaveDocument@12`, VA `0x6001CD60`). It seeks to 0 and writes 12 bytes assembled from the
+  dword at `0x6001F000` (`0x00010000`), a zero word, the dword at `document+0x2E`, and the low
+  word of `document+0x4A`.
+* **Reader** the same VA with the third argument zero (from `_MatOpenDocument@16`, VA
+  `0x60011A90`, and from `_MatSaveDocument`). It reads exactly 12 bytes, rejects a stream whose
+  first word is not `0x00010000`, restores `document+0x2E` from bytes `0x06…0x09`, and — only
+  when the word at `0x0A` is non-zero — reads that many additional bytes into `document+0xA8`,
+  capped by the capacity word `document+0x4A`. Both lengths are 0 throughout the corpus, so no
+  root stream has a payload and nothing after `0x0C` is ever read.
+
+`document+0x2E` is the **next `Object N` number**, not a revision counter and not a live object
+count:
+
+* `_MatLoadObject@20` (VA `0x60016750`) hands the word to the storage creator as the first
+  `"Object %d"` number to try, then increments it;
+* `_MatCreateObject@32` (VA `0x60012A80`) and `_MatCloneObject@12` (VA `0x60012F90`) increment it
+  after a new object storage is allocated, and `_MatSaveObject@20` (VA `0x600165A0`) increments it
+  again when an object is published into the container;
+* nothing decrements it — `_MatDeleteObject@4` (VA `0x60013250`) and `_MatReleaseObject@4` only
+  free the storage.
+
+It is thus a monotonic allocator that survives save/open through this field. The corpus agrees:
+over the 130 P95 files the value is never below the number of live `Object N` storages
+(**130/130**; equal in only 17) and reaches 241 in a file holding 23 objects, which is what a
+never-decremented object serial produces and what an object *count* cannot.
 
 ## 1.6 `Objects` storage and embedded objects
 
@@ -140,7 +171,7 @@ OLE presentation streams:
 | Stream | Meaning |
 |---|---|
 | `Contents` | **the embedded application's own document, not a Publisher document** — see below |
-| `\x03Internal` | same format as §1.5 |
+| `\x03Internal` | same 6-byte prefix as §1.5, but 12 or 16 bytes (591 × 12, 648 × 16 across the 493 files); every 16-byte instance is the 12-byte record plus four zero bytes |
 | `\x01CompObj` | same 94-byte-style descriptor (102 bytes here) |
 | `\x01Ole` | 20 bytes — OLE object header |
 | `\x02OlePres000`, `\x02OlePres001` | presentation data (metafile/DIB) for the object |

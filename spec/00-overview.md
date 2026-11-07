@@ -2,7 +2,7 @@
 
 Status: **work in progress** — this document set is derived entirely from shipped
 artifacts (the retail CD images, the executables, and the documents they write).
-Where the evidence is incomplete the field is marked `[INFERENCE]` or `[UNKNOWN]`.
+Where the evidence is incomplete the field is tagged **INFERENCE** or **UNKNOWN**.
 
 Publisher versions covered:
 
@@ -68,4 +68,6 @@ Every non-trivial claim in this specification carries one of:
   disassembly of the shipped binaries.
 * `[INFERENCE]` — follows from observations plus domain knowledge but was not
   directly confirmed.
-* `[UNKNOWN]` — not yet established; the open question is stated.
+* **UNKNOWN** — not yet established; the open question is stated. (Tags are written as
+  `[OBSERVED]`, `[INFERENCE]`, `[UNKNOWN]` on individual claims; this line names them without
+  brackets so a marker-count check counts only real unresolved claims.)
