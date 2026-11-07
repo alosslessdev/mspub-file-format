@@ -201,10 +201,15 @@ the complete read/write map below.
 | `+0x3C` | `0x00409F85` | `0x00557A69` | default tab interval (§4.9.1) |
 | `+0x64` | `0x004BF85F`, `0x004C6C37`, `0x00561D04` | — | publication type selector (§4.9.3) |
 
-Scan scope for the negatives: all 3 826 functions of `MSPUB.EXE` 95 (`C:\pwrk\decomp95`), all
-4 253 functions of `MSPUB.EXE` 97 (`notes/p98/decomp97`) and all 5 361 functions of
-`MSPUB.EXE` 98 (`notes/p98/decomp98`), including one-hop callees that receive the document
-pointer as an argument. The three never-read words are therefore pure
+Scan scope for the negatives — every Publisher module on the CD, 15 072 decompiled
+functions: `MSPUB.EXE` 95 (3 825), 97 (4 252) and 98 (5 360); `PUBDLG.DLL` (57),
+`MSPUBW32.DLL` (608), `PUB3STP.DLL` (227), `MSPUBQ32.DLL` (54), `COMPLINC.DLL` (185),
+`PUBOLE32.DLL` (207) and `PUB4STP.DLL` (297). The scan covers every access to each build's
+document pointer, to a local derived from it, and to the inline chunk-table form, plus
+one-hop callees that receive the pointer as an argument. Only the three `MSPUB.EXE` builds
+parse the DOCUMENT chunk at all; the DLLs contain no reference to it (`+0x4E` and `+0x2E`
+never occur as document offsets, and none of them mentions the `0xACE8` stream magic).
+The three never-read words are therefore pure
 residue: they arrive with the file and leave with it, and no UI or layout path branches on
 them. Their correlation with the print setup chunk is only historical — `0x0029+0x50`
 (`dmPaperSize`) equals `+0x2E` in 103/130 Publisher 95 files, but no code copies either into
