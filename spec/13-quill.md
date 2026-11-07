@@ -489,17 +489,57 @@ What is **excluded**, with counts over the three text-bearing documents:
 | the `u32` at shape `+0x14` is the ordinal | no — the ten chunks carrying the `2, 6, 10, 14, …` ladder are the **pages** (`type 0x14`, parent `0x100`), not shapes; the ladder is a page index with a 2-bit tag (§17.3) |
 | any `Contents` field carries the `MCLD` key | no — every chunk of every marker in `CHEKLIST.JSP` and `CLRCHK.JSP` was scanned at every byte offset for a `u16` and a `u32` whose value set equals `MCLD.ids`; 0 hits. The nearest field, shape `+0x58`, is the style id (row above) |
 
-`[UNKNOWN]` the remaining half: the `Contents` side of the key. The blocking fact is now
-precise: the key is *assigned by the text engine* — `FUN_4041823e` (VA 0x4041823e) allocates
-`max+1` and returns it to the caller — and the only persisted copy is `MCLD.ids`. No chunk
-payload in the 98 corpus holds that set, and the one non-chunk region of `Contents`
-(`[u32@0x12, u32@0x16)`, §13.14) is the 46-byte **empty** text store in all five 98
-documents (`textBase == textEnd == directory offset`, all four id ranges 0, all four record
-pointers 0). So either the pairing is positional (the Publisher enumerates its text frames in
-the same order as `MCLD.ids`, which is the order `FUN_40422e4d`, VA 0x40422e4d, rebuilds the
-map in) or the key is written into a structure outside `Contents`. The discriminating
-observation is an authored document with two text frames whose `MCLD` ids are non-consecutive
-and whose directory order is reversed relative to those ids.
+### 13.13.1 The positional hypothesis (tested and rejected)
+
+The key is *assigned by the text engine* — `FUN_4041823e` (VA 0x4041823e) allocates
+`max+1` and returns it to the caller — and the only persisted copy is `MCLD.ids`. The one
+non-chunk region of `Contents` (`[u32@0x12, u32@0x16)`, §13.14) is the 46-byte **empty**
+text store in all five 98 documents (`textBase == textEnd == directory offset`, all four id
+ranges 0, all four record pointers 0). That left one candidate: a **positional** pairing,
+the *i*-th text-bearing shape in directory order ↔ the *i*-th `MCLD` object / `TOKN`
+ordinal. It is **ruled out**. `[OBSERVED]`
+
+**1. The counts do not agree, in 2 of the 3 text-bearing documents.** The text-free pair
+`MSPUB.PUB` / `ZMSPUB.PUB` has no `TEXT` record and no `MCLD` record at all, so the rule is
+untestable there (0 objects, 0 bytes of text). For the other three:
+
+| document | `MCLD` objects | all shape chunks | marker `0x08` (text-frame) | `0x08` off the master page |
+|---|---|---|---|---|
+| `CHEKLIST.JSP` | 18 | 26 | 14 | 13 |
+| `CLRCHK.JSP` | 94 | 499 | 95 | 94 |
+| `INFOSHET.JSP` | 1 | 13 | 3 | 2 |
+
+A positional rule needs a shape-side predicate with `|S| = |MCLD|` in *every* document.
+No predicate is derivable from `Contents`: the only marker set that is constant across the
+three documents is the 11-shape master-page furniture (`0x01`–`0x07`, `0x09`, `0x0B`, plus
+one `0x08` and one `0x0A` on the master page), and again 11 ≠ 18/94/1. The single
+"natural" predicate — marker `0x08`, excluding master-page children — matches `CLRCHK`
+(94 = 94) and fails the other two (13 ≠ 18, 2 ≠ 1). `CHEKLIST.JSP` is the hard
+counterexample: **18 objects but only 14 text-frame chunks**, so four objects would have no
+shape to pair with, and `INFOSHET.JSP` has **three** candidate `0x08` frames for **one**
+object with nothing in the record to say which.
+
+**2. The persisted order is the map's insertion order, not a shape traversal.** The loader
+`FUN_40422e4d` (VA 0x40422e4d) builds the text-object map by iterating `MCLD.ids[]` in
+array order and inserting each key (`FUN_4040ec54` returns `ids[index]`); the saver
+`FUN_4041a94b` (VA 0x4041a94b) walks the same map by index and labels the per-object
+chunks (`TOKN`, `BMKT`, `OBJ`, `TCD `) with `(short)element_index`. Neither routine reads
+`Contents` or any shape list, so the ordinal `i` is a map insertion index — a
+self-perpetuating order that starts at `MCLD.ids` and never touches the shape tree. The
+one API that binds a text object to a host object, `FUN_4044afa7` (VA 0x4044afa7), stores
+the host pointer at text-object slots `+0xc`/`+0xd` and `+0x12`/`+0x13`, but all three of
+its call sites (VAs 0x4041029a, 0x40414f8e, 0x40459d69) pass key `0xFFFFFFFF` — "allocate
+a new key" — i.e. it runs only on *creation*, never on load. There is no load-time
+positional pairing in the engine.
+
+**Conclusion for a reader.** The binding is not in the file: not a chunk field (0 hits in
+the byte scans above), not positional (counts above), and not in the text store (empty).
+The only remaining possibility is a structure outside `Contents` written by the host
+(`MSPUB.EXE` 98, whose `Quill`/`QS98` strings show it loads the engine dynamically), which
+is why a third-party reader cannot recover the text→shape mapping from these documents. The
+discriminating observation stays the one in §13.16: a document with two text frames whose
+`MCLD` ids are non-consecutive and whose directory order is the reverse of the `MCLD`
+order.
 
 ## 13.14 Publisher 95 / 97 — the in-`Contents` text layer
 
@@ -689,7 +729,7 @@ base and is reported by the scanner rule, not by a constant offset).
 
 | Item | Status | Discriminating observation |
 |---|---|---|
-| text → shape linkage, the `Contents` half | `[UNKNOWN]` — the stream half is closed and the two numbers are now separated (§13.13): the text-object **key** is `MCLD.ids[i]` and the per-object chunk **id** is the map index. Blocking fact: no `Contents` chunk payload in the 98 corpus carries the `MCLD` key set (full `u16`/`u32` scan of every chunk of every marker in `CHEKLIST.JSP` and `CLRCHK.JSP`, 0 hits), and the only non-chunk region of `Contents` (`[u32@0x12, u32@0x16)`) is the 46-byte **empty** text store in all five 98 documents. Excluded: `SYID` ids (= the shape style id at shape `+0x58`, closed), `FDPP`/`FDPC` ids, the shape-chunk `id` (≥ `0x100`), and the `4k+2` ladder (it is a **page** field, not a shape field) | an authored document whose two text frames have non-consecutive `MCLD` ids and whose directory order is the reverse of the `MCLD` order: if the pairing is positional the two frames exchange text; if a field carries the key it moves |
+| text → shape linkage, the `Contents` half | **closed (not stored in the file)** — the stream half is closed (§13.13): the text-object **key** is `MCLD.ids[i]` and the per-object chunk **id** is the map index. The `Contents` half does not exist: no chunk payload in the 98 corpus carries the `MCLD` key set (full `u16`/`u32` scan of every chunk of every marker in `CHEKLIST.JSP` and `CLRCHK.JSP`, 0 hits), the only non-chunk region (`[u32@0x12, u32@0x16)`) is the 46-byte **empty** text store in all five 98 documents, and a positional pairing is ruled out by the object/frame counts (18 vs 14, 94 vs 95, 1 vs 3) and by the engine's map order, which is `MCLD.ids` insertion order and never walks `Contents` (§13.13.1). Excluded: `SYID` ids (= the shape style id at shape `+0x58`, closed), `FDPP`/`FDPC` ids, the shape-chunk `id` (≥ `0x100`), the `4k+2` ladder (**page** field) | an authored document whose two text frames have non-consecutive `MCLD` ids and whose directory order is the reverse of the `MCLD` order |
 
 ## 13.17 The property-field table in `QS98.DLL` (proven)
 

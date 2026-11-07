@@ -72,7 +72,7 @@ tail; Publisher 98 text lives in Quill (chapter 13). `[OBSERVED]`
 | Sub-array | Count | Record content | Evidence |
 |---|---|---|---|
 | records `0 … A−1` | `A` | column stops: `a` is an ascending x within the frame, `d == 0xFFFF` | `d == 0xFFFF` 935/935; `a` non-decreasing and `a[last] ≤ right−left` 259/259 |
-| records `A … A+B−1` | `B` | rows: `a` cumulative row bottom, `b` row text height, `c` per-row metric, `d` selector | `a[last] == bottom−top` 259/259; `a` strictly increasing and `0 < a ≤ bottom−top` 259/259 |
+| records `A … A+B−1` | `B` | rows: `a` cumulative row bottom, `b` **minimum** row height, `c` **nominal** row extent (`a[i] = a[i−1] + max(b,c)`), `d` selector (chapter 06 §6.4.1) | `a[last] == bottom−top` 259/259; `a` strictly increasing and `0 < a ≤ bottom−top` 259/259 |
 
 * **Column count is `A = u16@+0x4A`, not the length of the first `0xFFFF` run.** That run
   equals `A` in 134/259 chunks and over-counts in 125/259, because it continues into the

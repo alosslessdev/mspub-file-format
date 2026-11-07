@@ -280,8 +280,12 @@ classes**, in marker order, one cell per type [OBSERVED: 130/130 files, 130/130 
 
 Each cell is the little-endian `u16` `B<<8 | A`, i.e. the two bytes that every chunk of that
 marker carries at `+2/+3`. The table is written at save time from the document's own chunks, so
-it is a *cache of a per-document constant*, and it is the reason the pair at chunk `+2/+3` was
-long mistaken for a length: it is a per-type, per-document descriptor, not a size.
+it is a copy of a **per-build, per-marker template** entry, and it is the reason the pair at
+chunk `+2/+3` was long mistaken for a length: it is a descriptor pair, not a size. The template
+table is at VA `0x00593308` with stride `0x36` (entry `0x00` = `5E 5C`, `0x01` = `60 60`,
+`0x02` = `9C 74`, `0x03` = `9E 74`, `0x15` = `78 6A` in the Publisher 95 build; the 97 and 98
+builds differ), and the header constructor at VA `0x00407E46` copies the entry into the record.
+No reader compares the pair — it is write-only (chapter 04 §4.11).
 
 **The four block variants are therefore not noise.** Only types `0x0002` and `0x0003` have a
 first descriptor byte that varies between documents, and on every file `A(0x03) = A(0x02) + 2`.

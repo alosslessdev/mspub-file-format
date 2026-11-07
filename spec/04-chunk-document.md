@@ -29,7 +29,7 @@ files".
 | Offset | Width | Field | Values / meaning |
 |---|---|---|---|
 | 0x00 | u16 | `typeMarker` | `0x0015`, 128/128 |
-| 0x02 | u16 | `descriptor` | `0x6A78` (bytes `78 6A`) in 128/128 — the per-type descriptor pair (chapter 02 §2.5), [UNKNOWN] semantics |
+| 0x02 | u16 | `descriptor` | `0x6A78` (bytes `78 6A`) in 128/128 — the per-marker stamp: byte `A = 0x78` and byte `B = 0x6A` are entry `0x15` of the 54-byte per-marker record template at VA `0x00593308`, copied verbatim by the record constructor (§4.11); never compared, only used as a layout split point |
 | 0x04 | u16 | `listChunkId` | id of the `0x29` chunk, 128/128 |
 | 0x06 | u16 | `defaultsChunkId` | id of the `0x28` chunk, 128/128 |
 | 0x08 | u16 | `firstPageId` | id of the first PAGE chunk, 128/128; it is always the lowest-offset PAGE [OBSERVED] |
@@ -170,7 +170,7 @@ same bit that `VA 0x0045BEF0` keeps in step with `coordinateSystem == 2` (§4.10
 
 ```
 u16@+0x00 == 0x0015
-u16@+0x02 == 0x6A78
+u16@+0x02 == 0x6A78           (P95; P97 0x889E, P98 0xB2D2 — a build constant, §4.11)
 typeof(by_id(u16@+0x04)) == 0x29 ; typeof(by_id(u16@+0x06)) == 0x28
 typeof(by_id(u16@+0x08)) == 0x14 ; typeof(by_id(u16@+0x68)) == 0x39
 u16@+0x0E == 1 ; u16@Contents+0x0E == document chunk id (see chapter 02)
@@ -314,3 +314,67 @@ Supporting evidence:
   Publisher 97 documents whose file names and page sizes are labels (`DSKLABL2.PUB` 2.75 ×
   2.75 in, `B7160.PUB` 2.5 × 1.5 in, …). Value 2 never occurs in the corpus at all — the
   dispatcher handles it, no shipped document uses it. [OBSERVED]
+
+## 4.11 The descriptor pair at `+0x02` (closed)
+
+Bytes `+0x02`/`+0x03` are **not** a length and are **not** read as a word by any code path.
+They are the first two bytes of a static 54-byte-per-marker record template that the
+chunk constructor copies into the header. (This code table is a different structure from the
+header-block cache of chapter 02 §2.5: the block at `Contents +0x22` is written from the
+document's chunks at save time, while the chunk bytes come from this fixed table, so the
+two agree but have independent writers.) `[OBSERVED]`
+
+**The template.** `FUN_00401440` (VA `0x00401440`) copies 54 bytes from
+`0x00593308 + marker·0x36` into a local descriptor block; the block's fields are
+
+```
++0x00 u8  A             -> chunk +0x02
++0x01 u8  B             -> chunk +0x03
++0x02 u8  alloc flags   (low 3 bits select the size/allocator class, see 0x004307F8)
++0x04 ...               per-family parameters (element size, id-field offsets)
+```
+
+Entry `0x15` of the Publisher 95 template is `78 6A 19 00 02 00 04 00 06 00 08 00 44 00
+46 00 48 00 4A 00 …`: `A = 0x78`, `B = 0x6A` — the `0x6A78` word every DOCUMENT chunk
+carries. The same template supplies every other marker's stamp (`0x14 → 1A 1A`,
+`0x01 → 60 60`, `0x16 → 1A 10`, …), which is why chapter 12 §12.2 can list the stamp
+per marker and version. The P97 template entry `0x15` is `9E 88` and the P98 one `D2 B2`
+(0x889E / 0xB2D2) — the stamp is a *build* constant, not a document property.
+
+**Who writes it.** `FUN_00407E46` (VA `0x00407E46`) is the header constructor: it calls
+`FUN_00401440`, then writes `u16@+0x00 = marker`, `u8@+0x02 = A`, `u8@+0x03 = B`. Every
+chunk-creating path reaches it through `FUN_004307F8` (VA `0x004307F8`, dispatch on the
+entry's `+0x02 & 7`) or through `FUN_0040835C` (VA `0x0040835C`) and `FUN_00418404`
+(VA `0x00418404`), both of which call `FUN_00407E46` on the freshly allocated payload.
+On load, `FUN_0045FFD4` (VA `0x0045FFD4`) copies the first `B+1` bytes of the chunk from
+disk verbatim and reads the remainder starting at offset `A`, so a loaded chunk keeps the
+pair it was saved with.
+
+**Who reads it.** Only as offsets, never as an identity:
+
+* `A` is the constructor's internal split point: `FUN_00407D59` (VA `0x00407D59`) returns
+  it, `FUN_0040835C`/`FUN_00418404` allocate and zero `A + 10` bytes for the in-memory
+  buffer and write the record's secondary header at `payload + A`, `FUN_00444B6E`
+  (VA `0x00444B6E`) computes `A − B` as the variable-length part, and the loader
+  (`FUN_0045FFD4`) starts its second read at `A`. It is **not** the on-disk extent: the
+  buffer carries slack, and the persisted record is `B + 10` bytes plus its elements (for
+  the DOCUMENT `B + 10 = 116` while `A + 10 = 130`).
+* `B` is the last fixed byte of the on-disk record — the extent that matters:
+  `base = B + 10` for every family (chapter 06 §6.1, chapter 12 §12.2), and
+  `FUN_00444B6E` reads `u8@+0x03` to bound the header read.
+* No site compares `u16@+0x02` against a constant. The only word compared against a
+  chunk's `+0x02` anywhere in the four builds is `FUN_005239E5` (VA `0x005239E5`), which
+  tests `== 0x2C6` and `< 300` on a *style/font* record's `+0x02` (a version word), not on
+  the descriptor.
+
+There is no dispatch on the marker family through the pair: the family dispatch is the
+marker at `+0x00` (chapter 17 §17.2) and the allocator class is entry byte `+0x02` of the
+*template* (VA `0x004307F8`), never the bytes in the chunk. A reader therefore MUST
+preserve `+0x02`/`+0x03` and MUST NOT derive the chunk size from either byte; the size
+comes from `B`'s family law only through the tables in chapters 06/12.
+
+Scan scope for the negative: all 15 072 decompiled functions of the nine shipped modules
+(the same population as §4.9) were searched for the literal `0x6A78`, for the byte pair
+`78 6A`, and for every access to a chunk payload's `+0x02`/`+0x03`; only the constructor
+(write), the loader (copy/split) and the offset consumers above touch them. The 54-byte
+template has exactly one reader, `FUN_00401440`, called from 19 sites.

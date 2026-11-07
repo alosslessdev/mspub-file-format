@@ -166,7 +166,7 @@ Publisher 95/97 corpora) and each record is `{u32 a, u32 b, u32 c, u16 d}`. The 
 | Sub-array | Count | Content | Evidence |
 |---|---|---|---|
 | records `0 … A−1` | `A` = u16@`+0x4A` (935 records) | column stops: `a` is an ascending x within the frame, `d == 0xFFFF` | `d == 0xFFFF` 935/935; `a` non-decreasing 676/676; `a[last] ≤ right−left` 259/259 |
-| records `A … A+B−1` | `B` = u16@`+0x50` (1 683 records) | rows: `a` is the cumulative row bottom; `b`/`c` are per-row metrics, `d` a selector | `a` strictly increasing 1 424/1 424; `a[A] < a[A−1]` (the only reset) 259/259; `a[last] == bottom−top` 259/259; `Δa == max(b, c)` 1 248/1 424 |
+| records `A … A+B−1` | `B` = u16@`+0x50` (1 683 records) | rows: `a` is the cumulative row bottom, `b` the minimum height, `c` the nominal height, `d` a selector | `a` strictly increasing 1 424/1 424; `a[A] < a[A−1]` (the only reset) 259/259; `a[last] == bottom−top` 259/259; `Δa == max(b, c)` 1 248/1 424 |
 
 `A + B = N` in 259/259 tail-bearing chunks. **The column count is `A` from `+0x4A`, not the
 length of the leading `d == 0xFFFF` run**: that run equals `A` in only 134/259 chunks and
@@ -175,17 +175,39 @@ over-counts in 125/259, because row 0 frequently carries `d = 0xFFFF` as well. `
 | Field | Column records (`0 … A−1`) | Row records (`A … A+B−1`) |
 |---|---|---|
 | `a` `+0x00` | ascending x tab stop | cumulative row bottom; `0 < a ≤ bottom−top`, last value `== bottom−top` |
-| `b` `+0x04` | `[UNKNOWN]` | row text height `[INFERENCE]` |
-| `c` `+0x08` | `[UNKNOWN]` — equals `a[i+1] − a[i]` in only 116/676 pairs | per-row metric `[INFERENCE]` |
+| `b` `+0x04` | **minimum column width**: `0x1BE7C` (114 300 EMU = 9 pt) on every created column (VA `0x00542A57`) | **minimum row height** — the floor the distribution cannot go below; seeded `0` at creation (VA `0x00542A57`) and consumed as a floor by VA `0x0054703A` (below). The nonzero value present in every saved row is not written by any located setter; it survives edit/save unchanged |
+| `c` `+0x08` | **nominal column width**; equal to `a[i]−a[i−1]` | **nominal row height**; equal to `a[i]−a[i−1]`, rewritten on a drag-resize (VA `0x0054EA5A`) |
 | `d` `+0x0C` | `0xFFFF` ×935 | `0xFFFF` ×1 239, `0` ×333, `1` ×59, `3` ×36, `2` ×12, `6` ×4 |
 
-**Row advance.** Between consecutive rows `Δa == max(b, c)` in 1 248/1 424 pairs (50 more
-within 2 000 EMU); the first row is measured from the frame top, where `a[A] == max(b, c)`
-in 224/259 chunks (3 more within 2 000 EMU). The remaining 158 advances exceed both and are
-not explained by the record (chapter 10 §10.7).
+**Row advance and the two metrics.** `a` is the running sum of `max(b, c)`, and the layout
+routine that produces it is VA `0x0054703A`, called from the frame-resize handlers
+(VA `0x00546D17` for the width axis, VA `0x0054BD36` for the height axis) as
+`FUN_0054703A(row-array-pointer, B, target_extent, &total)`. It first sums every `b` (the
+minimum total), then distributes the frame height over the `c` values proportionally,
+raising any `c` that falls below its `b` to `b`, and finally writes
+`a[i] = a[i−1] + max(b[i], c[i])` (the `piVar7[-1] <= iVar4` selection). The corpus agrees:
+`Δa == max(b, c)` in 1 248/1 424 pairs (50 more within 2 000 EMU), and the first row is
+measured from the frame top, where `a[A] == max(b, c)` in 224/259 chunks (3 more within
+2 000 EMU). The remaining 158 advances exceed both and are not explained by the record
+(chapter 10 §10.7).
 
-`[OBSERVED]` for the counts and the geometry identities; the `b`/`c` readings are
-`[INFERENCE]`, and the meaning of the row selector `d` is chapter 10 §10.3.2.
+The two metrics are **not** interchangeable, and neither is a criterion for the other:
+`c` is what the user set (it is created as the even division of the frame extent and
+survives editing as a nominal value), `b` is the floor the text imposes. `b > c` therefore
+means the row grew to fit its text; it occurs on 32 of the 132 measured advances, and on
+those rows the *saved* `a` follows `b`, not `c`. The column records use the same pair
+transposed: `c` is the nominal width, `b` is the minimum width (a constant 9 pt on every
+column Publisher creates). The identity `Δa == max(b, c)` holds for 1 248/1 424 row pairs;
+for columns `b` is constant, so `Δa == c` in every created column.
+
+`[OBSERVED]` for the counts, the geometry identities and the `b`/`c` split (writer
+VA `0x00542A57`, layout VA `0x0054703A`, resize VA `0x0054EA5A`); the meaning of the row
+selector `d` remains chapter 10 §10.3.2. The one gap is the *origin* of a saved `b > 0`:
+`0x00542A57` seeds `b = 0`, `0x0054703A` reads it as a floor and never writes it, and a
+write scan of the two builds (3 825 functions in `MSPUB.EXE` 95, 4 252 in 97) finds no
+store into the `+0x04` slot other than those two constants — the only other writers touch
+`a` (`+0x00`) and `c` (`+0x08`). Every corpus row nonetheless carries a nonzero `b`, so
+the value arrives with a whole-array copy rather than through a field setter.
 
 The price-list frame (`pricelst.pub`, chunk `0x0131`) has `A = 9` and `B = 19` (`N = 28`):
 its nine column stops are the nine price columns, and chapter 10 §10.3.1 shows `A · B`

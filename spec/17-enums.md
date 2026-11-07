@@ -14,7 +14,28 @@ unchanged.
 | `version_magic` | `Contents +0x02` | `0x22`, (`0x2C` = 2000+) | 95/97/98 all write `0x22` |
 | `format_version` | `Contents +0x04` | `200`, `300`, `710` | 300 = this family; loader also accepts the legacy pair 200/710 |
 | `header_tag` | `Contents +0x0C` | `125` (P95, and one P97 file), `136` (P97/97-deluxe), `616` (P98), `704` (version 200) | accepted per build; see chapter 02 §2.2 |
-| directory record `flags` | directory | `0x1040 | bits`, 13 values | values below; bit meaning `[UNKNOWN]` (chapter 03) |
+| directory record `flags` | directory | `0x1440 \| (bit3<<3) \| (bit5<<5) \| (bit7<<7) \| (cls<<8)`, 13 values | every bit named below; the per-record writer forces bit 6 = 1 and bits 11/15 = 0 (chapter 03 §3.6) |
+
+Bit decomposition of the 13-value domain (10 732 non-document records, all 493 documents):
+
+| bits | mask | meaning | anchor |
+|---|---|---|---|
+| 0–1 | `0x0003` | **in-use state**: 0 idle, 1 in use, 2 sticky, 3 assignable; always 0 on disk | setter/restorer VA `0x0041D0C7` |
+| 2, 4 | `0x0014` | unused — never set in any corpus record | — |
+| 3 | `0x0008` | "registered in auxiliary reference lists" `[INFERENCE]` | tested by VA `0x00407C1A` |
+| 5 | `0x0020` | record-class **memory/allocation** flag ("owns a separate payload block") `[INFERENCE]`; set on exactly `0x1A 0x1F 0x21 0x31 0x32 0x37 0x38 0x39` and 12/130 of `0x26`, never with `cls != 2` | no individual setter; invariant only |
+| 6 | `0x0040` | **persisted / live record** — forced 1 on every record | writer VA `0x00538727`; save traversal VA `0x0044D3FC`; cleared at load VA `0x0045E143` |
+| 7 | `0x0080` | **linked OLE object** (object is a link, not embedded) — closed in chapter 03 §3.6.5 | setter VA `0x004502F6` (P98 `0x004F74DA`); menu switch VA `0x00438216` |
+| 8–9 | `0x0300` | 2-bit **class/level** (0…3) | getter VA `0x004010AD`, setter VA `0x0040827E` |
+| 10 | `0x0400` | constant 1 on disk; set on objects that have a parent | ctor VAs `0x0044D909`, `0x004628E3` |
+| 11 | `0x0800` | "selected" `[INFERENCE]` — force-cleared on save and on load | writer VA `0x00538727`; loader VA `0x0045E30A`; setter VA `0x00401A5B` |
+| 12–14 | `0x7000` | 3-bit **slot kind**: 1 = live chunk (all disk records), 6 = free/reusable | loader VA `0x0045E15B`; free-slot write VA `0x00407DA5` |
+| 15 | `0x8000` | traversal mark — force-cleared on save and load | writer VA `0x00538727`; loader VA `0x0045E14A` |
+
+Bits 2 and 4 are the only write-only bits: no corpus record sets them and no setter exists,
+so a reader cannot observe them and must reproduce 0. Everything else is either forced by
+the writer (6, 11, 15) or has a named accessor above; the full derivation is in chapter 03
+§3.6.
 
 Directory `flags` domain observed over all 493 documents (non-document records):
 
@@ -99,7 +120,8 @@ carry `15`, the value the Publisher 97 layout table maps to `coordinateSystem ==
 |---|---|---|
 | `rotation` | shape `+0x04` | `0 … 3599`, **1/10 degree** (0.1°), counter-clockwise, mod 3600 |
 | coordinates | shape `+0x06` | signed EMU; `left ≤ right`, `top ≤ bottom` |
-| record length `B` | chunk `+0x03` | per marker, see chapter 12 §12.2 |
+| descriptor byte `A` | chunk `+0x02` | per marker **and build**, from the 54-byte table at VA `0x00593308`; the constructors' internal split point, **not** a length or the record extent (chapter 04 §4.11) |
+| descriptor byte `B` | chunk `+0x03` | per marker **and build**; last fixed byte, `base = B + 10` for every family; per marker table in chapter 12 §12.2 |
 
 ## 17.6 Colour
 
@@ -123,6 +145,7 @@ code as `tools/palette.py` (generated from that table, with `decode_colorref`).
 | Observation | P95 | P97 | P98 |
 |---|---|---|---|
 | DOCUMENT size | base | base + 30 | base + 72 |
+| DOCUMENT descriptor `u16@+0x02` (bytes `+0x02/+0x03`) | `0x6A78` (`78 6A`) | `0x889E` (`9E 88`) | `0xB2D2` (`D2 B2`) |
 | PAGE record base | `0x24` | `0x24` | `0x28` |
 | PAGE descriptor bytes `+0x02/+0x03` | `1A 1A` | `1A 1A` | `1E 1E` |
 | page slots | `0x14` | `0x14` | `0x14`, `0x41` |
