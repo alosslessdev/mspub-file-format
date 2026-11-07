@@ -159,7 +159,9 @@ count:
 
 It is thus a monotonic allocator that survives save/open through this field. The corpus agrees:
 over the 130 P95 files the value is never below the number of live `Object N` storages
-(**130/130**; equal in only 17) and reaches 241 in a file holding 23 objects, which is what a
+(**130/130**; equal in only 19, all of them files with 0–4 live objects) and separates widely
+where objects were created and deleted: `SCHTRIP.PUB` holds 4 live objects with serial 241,
+`BIZSERV.PUB` holds 23 with serial 181, `JAZZY.PUB` holds 53 with serial 209 — which is what a
 never-decremented object serial produces and what an object *count* cannot.
 
 ## 1.6 `Objects` storage and embedded objects

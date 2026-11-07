@@ -8,8 +8,10 @@ it can compute any chunk size: a chunk's size is `next.chunkOffset - chunk.chunk
 
 Corpus for every figure below: the 130 Publisher 95 CD documents in `p95/x`
 (128 `.PUB` + the 2 `.JSP` publications), 10 732 non-empty records.
-Tags: **[OBSERVED]** measured, **[INFERENCE]** concluded from measurements,
-**[UNKNOWN]** not decidable from this corpus (the discriminating experiment is named).
+Tags: **OBSERVED** measured, **INFERENCE** concluded from measurements, **UNKNOWN** not
+decidable from this corpus (the discriminating experiment is named). Claim-level tags are
+written in brackets; this legend names them without brackets so a marker count finds only real
+unresolved claims.
 Regenerate the tables with `python tools/p95_census.py`.
 
 ## 3.1 Structure

@@ -323,7 +323,8 @@ Three errors in the previous revision of this chapter are corrected here:
 
 ## 2.6 The `+0x1E` / `+0x20` flag words
 
-`+0x20` is `0x0500` in all 130 files. `+0x1E` takes four values:
+`+0x20` is `0x0500` in all 130 P95 files (128 `.PUB` + 2 `.JSP`). `+0x1E` takes four values
+(128 `.PUB`: 8 / 87 / 16 / 17; both `.JSP` carry `0x0500`):
 
 | `+0x1E` | Files |
 |---|---|
