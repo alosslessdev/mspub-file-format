@@ -102,9 +102,18 @@ scanning chunks. Publisher 95: header `u16@0x26` = shape-0x00 stamp, `@0x2E` =
 0x01, `@0x36` = 0x02, `@0x40/@0x4A/@0x52/@0x5A/@0x62` = 0x03/0x04/0x05/0x06/0x07.
 [OBSERVED, see 02-contents-header.md §2.5]
 
-The derivation of the stamp values is **[UNKNOWN]**. The measured relations in
-the last column of the table above are exact for the modal size and are recorded
-so a reader can validate a candidate formula.
+The derivation of the stamp values is closed in chapter 04 §4.11: the two bytes are
+entry bytes `+0x00` (`A`) and `+0x01` (`B`) of the static 54-byte-per-marker record template
+at `MSPUB.EXE` 95 VA `0x00593308` (stride `0x36`), copied into the chunk header by
+`FUN_00401440` (VA `0x00401440`) via the header constructor `FUN_00407E46`
+(VA `0x00407E46`). No code path compares or dispatches on the pair: `A` is the
+constructor's allocation split point (returned by `FUN_00407D59`, VA `0x00407D59`, and
+consumed as `A − B` by the size computer `FUN_00444B6E`, VA `0x00444B6E`), and the
+on-disk extent follows the family law keyed by `B` (`base = B + 10`, chapter 06 §6.1;
+the `Contents`-header cache at `+0x22…` is an independent copy written at save time,
+chapter 02 §2.5). The measured relations in the last column of the table above are
+exact for the modal size and are recorded so a reader can validate a candidate formula.
+[OBSERVED, binary]
 
 ## 12.3 Record families
 
@@ -171,12 +180,20 @@ Exactly two markers use:
 | Marker | chunks | length condition | body |
 |---|---|---|---|
 | `0x0021` IMAGE_DATA | 527/527 | 100 % | WMF (`01 00 09 00 00 03`), chapter 08 |
-| `0x0022` | 2134/2134 | 100 % | always 10 bytes: `4d 4f` (`MO`) + `u16` ordinal 0..9 + 6 zero bytes |
+| `0x0022` | 2134/2134 | 100 % | always 10 bytes: `4d 4f` (`MO`) + `u16` object ordinal + 3 zero bytes + `u8` flag + `u16` zero |
 
 `0x0022` occurs 1..N times per document (356 files, 1272 in `p97deluxe/x`).
-Its 10-byte body is constant apart from the ordinal, which is 0..9 in the corpus.
-Semantics of the record: **[UNKNOWN]** — it lives in the document-globals group;
-the reader can skip it safely by its length.
+Its 10-byte body is `4d 4f` (`MO`) + the `u16` ordinal at `+0x0A` that names the linked
+`Objects/Object N` storage + three zero bytes + the `u8` per-reference state flag at
+`+0x0F` (`0x00` ×1201 / `0x80` ×933) + `u16` zero. The ordinal resolves to a live storage
+in 2134/2134 chunks (full corpus scan; 0 dangling ordinals), and no other `Contents`
+mechanism carries an object number (class strings, directory fields, monikers and tail
+values all excluded by the negative corpus scans). Closed by reference: the linkage,
+the worked example (`p97/x/AUDIOLBL.PUB`, `Contents+0x15E5` → `Object 1`), and the
+`+0x0F` domain with its rejected correlations are in chapter 15 §15.8–§15.8.1; a reader
+resolves an embedded object only through `+0x0A` and preserves `+0x0F` verbatim.
+[OBSERVED; the ordinal range is 0…276 (`JAZZY.PUB`), not 0…9 as the previous revision
+stated]
 
 ## 12.6 Record-size table
 
@@ -306,35 +323,42 @@ a 16-bit value. Measured over all 493 documents: [OBSERVED]
 | `(A, B)` changes only in Publisher 98 (record grew) | 5 | `0x0004` 59→67, `0x0005` 62→70, `0x0006` 57/53→65/61, `0x0007` 41→49, `0x000F` 24→32, `0x0014` 26→30 |
 
 So there is no separate derivation to find: `B` is the writer-side fixed-part length descriptor
-(chapter 06 §6.1) and `A` is a per-marker class byte, per-document only for the two record
-families that carry a counted tail of 8-byte elements. For `0x0003` the four `A` values are
-`0x8E`, `0x92`, `0x9A`, `0x9E`; for `0x0002` they are the same family. What selects `A` per
-document is still `[UNKNOWN]` and is tracked in chapter 06 §6.9 — not here.
+(chapter 06 §6.1; §4.11 names the template byte it is copied from) and `A` is the same
+template's first byte — a per-marker class byte that the allocator consumes as its split
+point (`FUN_00407D59` returns it, `FUN_00444B6E` computes `A − B` as the variable part).
+`A` is per-document only for the two record families that carry a counted tail of 8-byte
+elements (`0x0002`/`0x0003`: six `A` values over the corpus, P95 `0x8C/0x90/0x98/0x9C`,
+P97 `0x9C/0xA4`, P98 `0xBE` on `0x0003`). What selects `A` at save time is out of scope
+for a reader — the value travels with the record (and with the independent header-block
+copy, chapter 02 §2.5) and no load path branches on it — and is tracked in chapter 06
+§6.9. [OBSERVED, binary]
 
 Closed by reference, no longer open in this chapter:
 
 * `0x0022` body semantics — the 18-byte record is `"MO"` + object ordinal; see chapter 15 §15.8.
 * Element content of the SHAPE and LOGO arrays — chapters 06 §6.4 and 11.7.
 
-## 12.11 Rare markers `0x0036`, `0x004E`, `0x004F`, `0x0050`
+## 12.11 Rare markers `0x0036`, `0x004E`, `0x004F`, `0x0050` — closed
 
-These four markers occur only in the `.JSP` publications on the Publisher 98 CD
-(`CHEKLIST.JSP`), with 1-4 instances each, so they are recorded here as measured
-framing rather than as a completed layout. All four follow the same idiom as the
-counted records of 12.4: a duplicated `u16` count in the header.
+`0x0036` occurs once in each of the four `CHEKLIST.JSP` siblings (P95/P97/P97D/P98),
+always id `0x12E` with parent `0x10C` — the document's `0x0029` print-setup record —
+and is a fixed 112-byte record, not a counted array (no duplicate count; only eight
+non-zero bytes at `+0x00/+0x02/+0x03/+0x10/+0x12/+0x1E/+0x6A/+0x6E`). The P98 sibling
+differs from the other three only at `+0x6E` (`0x5E` vs `0x46`, `+0x6F` `0x01` vs `0x00`).
+No shipped binary reads or writes it: the `0x7070` stamp never occurs as an immediate in
+`MSPUB.EXE` 95 (3 293 functions), 97 (4 252) or 98 (5 360), and the record is carried
+through the chunk copy untouched. Closed by reference: a reader preserves the 112 bytes
+verbatim; see chapter 11 §11.8.2. [OBSERVED]
 
-| Marker | Instances | Size | Header bytes (hex) | Duplicate count |
-|---|---|---|---|---|
-| `0x0036` | 4 (identical) | 112 | `36 00 70 70 00 00 00 00 …` | none observed |
-| `0x004E` | 2 | 290 | `4E 00 0A 0A 00 00 00 00 00 06 00 06 00 2D 00 01 00 …` | `u16@+0x0A` == `u16@+0x0C` |
-| `0x004F` | 2 | 306 / 207 | `4F 00 0A 0A 00 00 00 00 00 1A 00 1A 00 0B 00 … 50 53` | `u16@+0x0A` == `u16@+0x0C` |
-| `0x0050` | 2 | 155 / 110 | `50 00 0A 0A 00 00 00 00 00 1B 00 1B 00 05 00 …` | `u16@+0x0A` == `u16@+0x0C` |
-
-`[OBSERVED]` size, prologue bytes and the duplicate-count idiom. `[UNKNOWN]` the
-element size and meaning of each array; the two records of `0x004E`/`0x004F`/
-`0x0050` in that file differ only in the count and payload length, so a single
-document with a controlled edit would settle each element size. Treatment: a
-reader must preserve these records verbatim when rewriting a document.
-
-`0x004F` ends with the ASCII bytes `50 53` ("PS") in the sampled file —
-`[INFERENCE]` a marker for a PostScript/print descriptor record.
+`0x004E`/`0x004F`/`0x0050` occur only in `p98/x/CHEKLIST.JSP` (two instances each) and
+share one header whose `u16@+0x0E` *is* the element size — `45` / `11` / `5` by marker —
+so `size == 0x14 + elementSize·n` holds in 6/6 instances with the duplicate count at
+`+0x0A`/`+0x0C` (`n`). The accessor is `MSPUB.EXE` 98 VA `0x004fcbe9`
+(`base = rec + A`, `elementSize = *(short *)(base + 4)`, element `k` at
+`base + 10 + elementSize·k`, i.e. `+0x0E` and `+0x14` on the file); the `0x004E` array is
+indexed by the `0x004F` kind field (VA `0x004e279f`), and the four line widths in the
+45-byte element are at `+0x14`/`+0x1A`/`+0x20`/`+0x26` (VA `0x004547f1`, EMU = byte ×
+`0x319C`). Closed by reference: the header, the size rule and the element layouts are in
+chapter 11 §11.11.2 (with the `+0x0E`-is-element-size law enforced by
+`tools/validate.py` `rec_0x4e_element_size`); the two trailing bytes of the `0x004F`
+instances (`50 53`, "PS") are carried verbatim with the record. [OBSERVED, binary]

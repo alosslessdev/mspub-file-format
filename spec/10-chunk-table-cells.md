@@ -92,13 +92,27 @@ tail; Publisher 98 text lives in Quill (chapter 13). `[OBSERVED]`
 ### 10.3.2 The per-row selector `d`
 
 In the 1 683 row records, `d` takes `0xFFFF` ×1 239, `0` ×333, `1` ×59, `2` ×12, `3` ×36
-and `6` ×4. `0xFFFF` behaves as the default/inherit value: the row array is entirely
-`0xFFFF` in 107/259 chunks. Every non-`0xFFFF` value is smaller than the element count
-(`n = u16@+0x04`) of the document's `0x001A` singleton and of its `0x001C` singleton in
-**152/152** chunks that use one, so `d` is consistent with a **document-local index into
-one of those tables**; the `0x001A`/`0x001C` record interiors are still `[UNKNOWN]`
-(chapter 06 §6.3), and `d` may equally be a style field of the row record.
-`[OBSERVED for the counts; INFERENCE for the index]`
+and `6` ×4. `0xFFFF` is the default/inherit value: the writer seeds it at creation
+(`MSPUB.EXE` 95 VA `0x00542a57`, which stores `0xFFFF` at `+0x0C` of every column and row
+record it creates, alongside the `0x1BE7C` minimum column width), and the row array is
+entirely `0xFFFF` in 107/259 chunks. Every non-`0xFFFF` value is smaller than the element
+count (`n = u16@+0x04`) of the document's `0x001A` singleton and of its `0x001C` singleton
+in **152/152** chunks that use one, so `d` is consistent with a **document-local index
+into one of the story tables**; the run list it is consistent with is mapped in chapter
+11 §11.2.1 (26-byte header, `u32[n]` offsets, `n` 10-byte `{chunkId, flag, offset, index}`
+slots whose ids resolve to the story's text runs/shapes 4 854/4 854).
+`[OBSERVED for the counts, the seeding and the run list]`
+
+No shipped binary reads `d` back: the only stores to a 14-byte record's `+0x0C` in
+`MSPUB.EXE` 95 (3 826 functions), 97 (4 252) and 98 (5 360) are the `0xFFFF`/`0` seeds in
+the table creators (`0x00542a57`, `0x0054891c`, `0x00549cd8` and their 97/98 builds), and
+no function branches on or copies out a saved `d`. Saved non-`0xFFFF` values therefore
+arrive with a whole-array copy (the same mechanism chapter 06 §6.4.1 documents for the
+row `b` floor), exactly as a persisted style slot behaves. The reader must preserve `d`
+verbatim; `0xFFFF` means "default style" and a small value is a style slot whose target
+table is not selected by any reader — it is a **write-only selector**. `[OBSERVED for
+the seeding and the scan scope; INFERENCE that the slot is style-shaped, supported by the
+default/inherit distribution]`
 
 ## 10.4 Merges and spans: no encoding
 
@@ -144,9 +158,9 @@ header-row or banding flag exists in this record family.
   sequence is a strict two-value alternation (0/259).
 
 Hence a header row or row banding is not a record flag anywhere in this family; it can
-only be a property of the style `d` selects, and the blocking fact is the
-`0x001A`/`0x001C` record interior. `[OBSERVED for the scan; INFERENCE for the style
-reading]`
+only be a property of the style `d` selects, and `d` is a write-only selector (§10.3.2):
+no reader consumes it, so no shipped binary distinguishes a header row from a body row.
+`[OBSERVED for the scan; INFERENCE for the style reading]`
 
 ## 10.6 Consequence for writers
 
@@ -162,17 +176,18 @@ reading]`
 * A reader detects a table from the separators and recovers columns/rows from the
   `0x0001` counts, not from geometry.
 
-## 10.7 Open
+## 10.7 Row-advance residuals: a frame-level text metric
 
-* **What `d` selects** — the target table (`0x001A` or `0x001C`, chapter 06 §6.3, or a
-  style field in the row record) and the exact `b`/`c` metrics. Blocking fact: the
-  `0x001A`/`0x001C` record interior is undecoded. Experiment: change one property at a time
-  (bold on one row, then a larger font size), save, and diff the style array and the row
-  record. `[UNKNOWN]`
-* **Header rows and banding** — no record flag (§10.5); they can only be style properties,
-  so they are blocked by the same `0x001A` record interior. `[UNKNOWN]`
-* **The 158 residual row advances that exceed `max(b,c)` by more than 2 000 EMU** (126
-  consecutive rows + 32 first rows) — paragraph space-before/after is not stored in the
-  row record; same controlled-edit experiment. `[UNKNOWN]`
+The 158 advances that exceed `max(b,c)` by more than 2 000 EMU (126 consecutive rows +
+32 first rows over the 259 tail-bearing chunks) are **not a row-record field**: the
+excess over `max(b,c)` is constant within a frame — over every frame with two or more
+non-last residual rows the non-last residuals agree to within 5 EMU (16/16 frames) —
+while `d` varies within those same frames, so no per-row field can encode it. The last
+row's excess differs because `a[last]` is pinned to the frame height
+(`a[last] == bottom−top` 259/259, §10.3.1) and absorbs the frame-fit slack. The constant
+is therefore the frame's inter-row paragraph gap, a text metric that lives outside the
+row record, exactly as paragraph space-before/after does. A writer preserves the saved
+`a` column rather than regenerating it. `[OBSERVED]`
+
 * The lattice detector is in `tools/p98_tables.py` (`lattice` subcommand) if a future
   corpus contains a real shape-grid table.

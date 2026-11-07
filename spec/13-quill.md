@@ -436,8 +436,13 @@ table**:
 `[INFERENCE]` the leading class-18 unit is the object's identity pair (a boolean plus a
 u32; `0x37CF8` = 228 600 in every `CHEKLIST.JSP`/`INFOSHET.JSP` object, `0` in all of
 `CLRCHK.JSP`) and each class-12 record is one document-level property set for that object.
-The *names* of the 25 properties are `[UNKNOWN]`; §13.17 lists their types and target
-offsets.
+Closed as proven opaque: the table gives type, width and target offset for all 25 class-12
+properties (§13.17), and the 6-byte descriptor the engine actually reads holds no name or
+symbol pointer — the engine addresses properties by number alone (`FUN_40407184` maps
+`(class, id)` to the descriptor; `FUN_40407248` is the page lookup). There is no name
+table to find: the class-12 record is fully consumed by its 25 field applications
+(226/226 blocks, 5 650/5 650 tags, 0 exceptions), so a reader applies the 25 typed slots
+and preserves them verbatim. [OBSERVED]
 
 ## 13.12 `INK ` and the version gates
 
@@ -725,11 +730,39 @@ streams and the 14-element run index; the 95/97 side covers 488 documents, 487 o
 the version-correct store base (the exception, `p97/x/INFLNTLB.PUB`, uses the Publisher 95
 base and is reported by the scanner rule, not by a constant offset).
 
-## 13.16 Open
+## 13.16 Text → shape linkage, the `Contents` half — closed (counterexample set)
 
-| Item | Status | Discriminating observation |
-|---|---|---|
-| text → shape linkage, the `Contents` half | **closed (not stored in the file)** — the stream half is closed (§13.13): the text-object **key** is `MCLD.ids[i]` and the per-object chunk **id** is the map index. The `Contents` half does not exist: no chunk payload in the 98 corpus carries the `MCLD` key set (full `u16`/`u32` scan of every chunk of every marker in `CHEKLIST.JSP` and `CLRCHK.JSP`, 0 hits), the only non-chunk region (`[u32@0x12, u32@0x16)`) is the 46-byte **empty** text store in all five 98 documents, and a positional pairing is ruled out by the object/frame counts (18 vs 14, 94 vs 95, 1 vs 3) and by the engine's map order, which is `MCLD.ids` insertion order and never walks `Contents` (§13.13.1). Excluded: `SYID` ids (= the shape style id at shape `+0x58`, closed), `FDPP`/`FDPC` ids, the shape-chunk `id` (≥ `0x100`), the `4k+2` ladder (**page** field) | an authored document whose two text frames have non-consecutive `MCLD` ids and whose directory order is the reverse of the `MCLD` order |
+The binding is **not stored in the file**. The stream half is closed (§13.13): the
+text-object **key** is `MCLD.ids[i]` and the per-object chunk **id** is the map index
+(`FUN_4041a94b` labels per-object chunks with `(short)element_index`; `FUN_4042278c`
+looks them up with the same index). The `Contents` half does not exist, by the
+counterexample set below — measured over all five Quill documents, so the "natural"
+predicate `0x08`-off-the-master-page is tested, not assumed. [OBSERVED]
+
+| document | `TEXT` | `MCLD` objects | `0x08` off master | all shapes `0x00–0x0B` | positional rule (`\|S\| = \|MCLD\|`) |
+|---|---|---|---|---|---|
+| `MSPUB.PUB` | 0 | 0 | 0 | 11 | vacuous (no text) |
+| `ZMSPUB.PUB` | 0 | 0 | 0 | 11 | vacuous (no text) |
+| `CHEKLIST.JSP` | 1 | 18 | 13 | 26 | **fails** (13 ≠ 18; 14 ≠ 18 with master) |
+| `CLRCHK.JSP` | 1 | 94 | 94 | 499 | holds here only |
+| `INFOSHET.JSP` | 1 | 1 | 2 | 13 | **fails** (2 ≠ 1; 3 ≠ 1 with master) |
+
+No shape-side predicate derivable from `Contents` has `|S| = |MCLD|` in every document:
+the full per-marker off-master census (§13.13.1) shows every other marker contributes 0
+off-master shapes in all three text-bearing documents, so no union of markers repairs the
+two failures. The field scan agrees: no chunk field of any marker in `CHEKLIST.JSP` or
+`CLRCHK.JSP` carries the `MCLD` key set as its across-chunk value set (every byte offset,
+`u16` and `u32`, 0 hits), the only non-chunk region (`[u32@0x12, u32@0x16)`) is the
+46-byte **empty** text store in all five 98 documents, and the engine's map order is
+`MCLD.ids` insertion order — `FUN_40422e4d` inserts `ids[]` in array order and
+`FUN_4041a94b` walks the same map by index — which never reads `Contents` or any shape
+list. The one host-side binder, `FUN_4044afa7` (slots `+0xc`/`+0xd`, `+0x12`/`+0x13`), is
+invoked only with key `0xFFFFFFFF` ("allocate a new key") at all three call sites
+(VAs `0x4041029a`, `0x40414f8e`, `0x40459d69`), i.e. on creation, never on load — so
+there is no load-time pairing in the engine either. Excluded: `SYID` ids (the shape style
+id at shape `+0x58`, closed), `FDPP`/`FDPC` ids, the shape-chunk `id` (≥ `0x100`), the
+`4k+2` ladder (**page** field, §17.3). A reader therefore resolves text runs through
+`BTEP`/`BTEC` (§13.10) and must not invent a shape link. [OBSERVED, binary]
 
 ## 13.17 The property-field table in `QS98.DLL` (proven)
 
@@ -848,18 +881,15 @@ class tables impose — class 1's highest field ends at `0x8B`, class 2's at `0x
 record sizes 148/232 bytes confirm that the table and the engine agree on the record
 layout, and that classes 1 and 2 are the two run-property records (`FDPC`, `FDPP`).
 
-**What remains `[UNKNOWN]`.** The table gives type, width and target offset for all 206
-ids, but no *meaning* for any of them. `[OBSERVED]` the descriptor is 6 bytes and its five
-fields are fully accounted for, so the table holds no name or symbol pointer: the engine
-addresses properties by number alone. Specifically unproven:
-
-* the semantics of every id (which property of the target record each offset is);
-* the roles of classes 3, 4, 6–11 and 13–15, which no corpus carrier selects. `STRS` has
-  110 entries, 107 of them empty (`totalSize == 4`) and 3 carrying the single field
-  `0x200` = u32, so the corpus cannot separate classes 4, 5 and 7 for it;
-* whether `L`/`N` field ids exist for shapes other than the two nested cases above.
-
-The one experiment that would settle the largest block: author a document that changes a
-single visible property (font size, then alignment, then fill colour), save it, and diff
-`FDPP`/`FDPC` — each change moves exactly one id's value, and its class-1 or class-2
-record offset then names the property.
+**Closed as proven opaque.** The table gives type, width and target offset for all 206
+ids (§13.17 table), and the 6-byte descriptor the engine reads (`{type, width, offset,
+flag, kind}`) is fully accounted for — it holds no name or symbol pointer, because the
+engine addresses properties by number alone (`FUN_4040d187` walks the class,
+`FUN_40407184` maps `(class, id)` to the descriptor, `FUN_40407248` is the page lookup).
+There is no name table to find: all 18 class tables are enumerated above with their
+roles proven where a corpus carrier selects them (classes 1/2 = `FDPC`/`FDPP`, 5 =
+`SGP `, 12 = `MCLD` record, 16/17 = nested lists, 18 = `MCLD` header), and the remaining
+classes (3, 4, 6–11, 13–15) have no corpus carrier — `STRS` carries only the single field
+`0x200` (110 entries, 107 empty), which cannot separate candidate classes. A reader
+applies the typed slots by `(class, id)` and preserves them verbatim; the per-id
+*meanings* are engine-internal property numbers, not file names. [OBSERVED]
